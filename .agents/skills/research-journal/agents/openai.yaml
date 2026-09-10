@@ -1,0 +1,5 @@
+interface:
+  display_name: "Research Journal"
+  short_description: "Persist evidence without erasing conflict"
+  default_prompt: "Use $research-journal to record this research result in the EdgeLab graph."
+

@@ -1,0 +1,5 @@
+interface:
+  display_name: "Indicator Design"
+  short_description: "Design causal, non-repainting indicators"
+  default_prompt: "Use $indicator-design to specify a real-time indicator from this research signal."
+

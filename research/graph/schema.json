@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.edgelab/schema/research-graph-v1.json",
+  "title": "EdgeLab research graph index",
+  "type": "object",
+  "required": ["schema_version", "node_types", "relation_types", "nodes", "edges"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "backend": { "type": "string" },
+    "node_types": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["concept", "signal", "mechanism", "hypothesis", "experiment", "finding", "dataset", "regime", "indicator", "strategy", "rejection", "open-question"] }
+    },
+    "relation_types": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["supports", "contradicts", "tests", "tested_by", "depends_on", "derived_from", "confounded_by", "explained_by", "alternative_to", "uses_signal", "observed_in", "valid_in_regime", "fails_in_regime", "implemented_by", "supersedes", "related_to"] }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "title", "summary", "status", "tags", "path"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Z][A-Z0-9-]+$" },
+          "type": { "type": "string" },
+          "title": { "type": "string", "minLength": 1 },
+          "summary": { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "minLength": 1 },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "path": { "type": "string", "pattern": "^research/.+\\.md$" },
+          "updated": { "type": "string", "format": "date" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "relation", "target"],
+        "properties": {
+          "source": { "type": "string" },
+          "relation": { "type": "string" },
+          "target": { "type": "string" },
+          "note": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
+

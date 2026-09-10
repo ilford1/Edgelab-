@@ -1,0 +1,5 @@
+interface:
+  display_name: "Edge Hypothesis"
+  short_description: "Turn observations into falsifiable claims"
+  default_prompt: "Use $edge-hypothesis to turn this observation into a real-time falsifiable hypothesis."
+

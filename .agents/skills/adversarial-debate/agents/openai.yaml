@@ -1,0 +1,5 @@
+interface:
+  display_name: "Adversarial Debate"
+  short_description: "Steelman and challenge a trading thesis"
+  default_prompt: "Use $adversarial-debate to argue both sides of this trading thesis and update the belief state."
+

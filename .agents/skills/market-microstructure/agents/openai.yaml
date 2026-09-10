@@ -1,0 +1,5 @@
+interface:
+  display_name: "Market Microstructure"
+  short_description: "Reason from flow and liquidity mechanics"
+  default_prompt: "Use $market-microstructure to analyze the participant mechanics behind this observation."
+

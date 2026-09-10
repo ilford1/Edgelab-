@@ -1,0 +1,5 @@
+interface:
+  display_name: "Experiment Design"
+  short_description: "Design leakage-safe edge experiments"
+  default_prompt: "Use $experiment-design to design a falsifiable, leakage-safe test for this hypothesis."
+

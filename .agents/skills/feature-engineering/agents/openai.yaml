@@ -1,0 +1,5 @@
+interface:
+  display_name: "Feature Engineering"
+  short_description: "Build causal microstructure measurements"
+  default_prompt: "Use $feature-engineering to define robust real-time features for this mechanism."
+

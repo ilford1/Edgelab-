@@ -1,0 +1,5 @@
+interface:
+  display_name: "Research Router"
+  short_description: "Load a small relevant research subgraph"
+  default_prompt: "Use $research-router to find the smallest relevant EdgeLab subgraph for this question."
+

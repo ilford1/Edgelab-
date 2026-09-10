@@ -1,0 +1,11 @@
+{
+  "id": "TYPE-NNN",
+  "type": "concept",
+  "title": "Short routing title",
+  "summary": "One or two sentences sufficient for routing; do not put full evidence here.",
+  "status": "draft",
+  "tags": ["discovery-term"],
+  "path": "research/concepts/TYPE-NNN.md",
+  "updated": "YYYY-MM-DD"
+}
+

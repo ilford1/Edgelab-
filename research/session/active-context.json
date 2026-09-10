@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "topic": null,
+  "objective": null,
+  "mode": null,
+  "seed_nodes": [],
+  "loaded_nodes": [],
+  "current_hypotheses": [],
+  "current_concepts": [],
+  "current_experiments": [],
+  "unresolved_questions": [],
+  "debate": {
+    "thesis": null,
+    "strongest_support": null,
+    "strongest_objection": null,
+    "belief_update": null
+  },
+  "last_query": null,
+  "updated_at": null
+}
+

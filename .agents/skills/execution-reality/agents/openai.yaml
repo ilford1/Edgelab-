@@ -1,0 +1,5 @@
+interface:
+  display_name: "Execution Reality"
+  short_description: "Stress-test costs, fills, and latency"
+  default_prompt: "Use $execution-reality to test whether this effect survives realistic execution."
+

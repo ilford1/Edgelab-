@@ -1,0 +1,5 @@
+interface:
+  display_name: "Strategy Red Team"
+  short_description: "Try to break a proposed trading strategy"
+  default_prompt: "Use $strategy-red-team to find the most damaging failure modes in this strategy."
+

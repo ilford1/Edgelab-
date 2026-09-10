@@ -1,0 +1,5 @@
+interface:
+  display_name: "Edge Validation"
+  short_description: "Audit evidence from prediction to economics"
+  default_prompt: "Use $edge-validation to audit whether this hypothesis is actually an exploitable edge."
+
