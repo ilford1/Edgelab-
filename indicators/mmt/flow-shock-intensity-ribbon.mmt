@@ -1,0 +1,164 @@
+script "Flow Shock Intensity Ribbon"
+
+input (
+  baselineSeconds = input.int(120, title: "Baseline active seconds", min: 30, max: 600)
+  warmupSeconds = input.int(30, title: "Minimum warmup seconds", min: 10, max: 120)
+  activityGatePct = input.float(97.5, title: "Activity gate percentile", min: 80.0, max: 100.0)
+  dominanceGatePct = input.float(65.0, title: "Dominant-side minimum", min: 50.0, max: 100.0)
+  scoreGate = input.float(80.0, title: "Shock score minimum", min: 50.0, max: 100.0)
+  releaseGatePct = input.float(90.0, title: "Re-arm below activity", min: 50.0, max: 99.0)
+
+  palette = input.select("Ice & Ember", title: "Palette", options: ["Ice & Ember", "Aurora", "Muted Pro", "Custom"])
+  weakOpacity = input.int(72, title: "Weak ribbon opacity", min: 20, max: 160)
+  peakOpacity = input.int(255, title: "Peak ribbon opacity", min: 160, max: 255, sameLine: true)
+  intensityGamma = input.float(0.72, title: "Intensity grading", min: 0.25, max: 2.0)
+  customBuyMid = input.color(color.rgb(17, 55, 94), title: "Custom buy mid", when: palette == "Custom")
+  customBuyPeak = input.color(color.rgb(73, 158, 255), title: "Custom buy peak", sameLine: true, when: palette == "Custom")
+  customSellMid = input.color(color.rgb(102, 20, 31), title: "Custom sell mid", when: palette == "Custom")
+  customSellPeak = input.color(color.rgb(255, 48, 67), title: "Custom sell peak", sameLine: true, when: palette == "Custom")
+)
+
+setup (
+  buyMid = palette == "Ice & Ember" ? color.rgb(17, 55, 94) : (palette == "Aurora" ? color.rgb(16, 75, 105) : (palette == "Muted Pro" ? color.rgb(42, 68, 99) : customBuyMid))
+  buyPeak = palette == "Ice & Ember" ? color.rgb(73, 158, 255) : (palette == "Aurora" ? color.rgb(40, 208, 255) : (palette == "Muted Pro" ? color.rgb(101, 151, 211) : customBuyPeak))
+  sellMid = palette == "Ice & Ember" ? color.rgb(102, 20, 31) : (palette == "Aurora" ? color.rgb(100, 24, 68) : (palette == "Muted Pro" ? color.rgb(91, 47, 52) : customSellMid))
+  sellPeak = palette == "Ice & Ember" ? color.rgb(255, 48, 67) : (palette == "Aurora" ? color.rgb(255, 54, 132) : (palette == "Muted Pro" ? color.rgb(222, 92, 101) : customSellPeak))
+  buyScale = color.scale(
+    at: [0.0, 50.0, 100.0],
+    colors: [color.rgb(4, 9, 17), buyMid, buyPeak],
+    space: colorspace.rgb,
+    easing: easing.smootherstep,
+  )
+  sellScale = color.scale(
+    at: [0.0, 50.0, 100.0],
+    colors: [color.rgb(20, 5, 8), sellMid, sellPeak],
+    space: colorspace.rgb,
+    easing: easing.smootherstep,
+  )
+)
+
+data (
+  chart = subscribe(data.ohlcv)
+  tape = subscribe(data.trades, history: 15m)
+)
+
+pane ribbonPane = pane(title: "Flow Shock Ribbon", height: 0.16)
+
+plot (
+  buyGlow = plot.line(title: "Buy flow glow", width: 5.0, showLabel: false, showValue: false, on: ribbonPane)
+  sellGlow = plot.line(title: "Sell flow glow", width: 5.0, showLabel: false, showValue: false, on: ribbonPane)
+  buyRibbon = plot.line(title: "Buy flow intensity", width: 1.6, showLabel: true, showValue: true, on: ribbonPane)
+  sellRibbon = plot.line(title: "Sell flow intensity", width: 1.6, showLabel: true, showValue: true, on: ribbonPane)
+  gatePlot = plot.line(title: "Shock gate", color: color.withAlpha(color.silver, 24), width: 0.7, style: linestyle.dotted, showLabel: false, showValue: true, on: ribbonPane)
+)
+
+state (
+  countHistory = rolling<float>(baselineSeconds)
+  sizeHistory = rolling<float>(baselineSeconds)
+  moveHistory = rolling<float>(baselineSeconds)
+
+  currentSecond: int = -1
+  tradeCount = 0.0
+  buySize = 0.0
+  sellSize = 0.0
+  firstPrice = 0.0
+  lastPrice = 0.0
+  lastActivity = 0.0
+
+  latestReady = false
+  latestBuyScore = 0.0
+  latestSellScore = 0.0
+  latestDominantScore = 0.0
+  latestDominance = 0.5
+  latestQualifies = false
+  armed = true
+)
+
+on tape.trade(tr) {
+  let tradeSecond = time.unixSeconds(tr.time) ?? 0
+
+  if currentSecond != tradeSecond {
+    if currentSecond >= 0 && tradeCount > 0.0 {
+      countHistory.push(tradeCount)
+      sizeHistory.push(buySize + sellSize)
+      moveHistory.push(math.abs(lastPrice - firstPrice) / context.tickSize)
+
+      if lastActivity < releaseGatePct / 100.0 {
+        armed = true
+      }
+    }
+
+    currentSecond = tradeSecond
+    tradeCount = 0.0
+    buySize = 0.0
+    sellSize = 0.0
+    firstPrice = tr.price
+    lastPrice = tr.price
+  }
+
+  tradeCount += 1.0
+  lastPrice = tr.price
+  if tr.isBuy {
+    buySize += tr.size
+  } else {
+    sellSize += tr.size
+  }
+
+  let grossSize = buySize + sellSize
+  let buyShare = grossSize > 0.0 ? buySize / grossSize : 0.5
+  let sellShare = grossSize > 0.0 ? sellSize / grossSize : 0.5
+  let buyDominant = buyShare >= sellShare
+  let dominantShare = math.max(buyShare, sellShare)
+  let buyMoveTicks = math.max(0.0, (lastPrice - firstPrice) / context.tickSize)
+  let sellMoveTicks = math.max(0.0, (firstPrice - lastPrice) / context.tickSize)
+
+  let effectiveWarmup = math.min(warmupSeconds, baselineSeconds)
+  let ready = countHistory.len >= effectiveWarmup && sizeHistory.len >= effectiveWarmup && moveHistory.len >= effectiveWarmup
+  let countPct = countHistory.len > 0 ? countHistory.countLte(tradeCount) * 1.0 / (countHistory.len * 1.0) : 0.0
+  let sizePct = sizeHistory.len > 0 ? sizeHistory.countLte(grossSize) * 1.0 / (sizeHistory.len * 1.0) : 0.0
+  let buyMovePct = moveHistory.len > 0 ? moveHistory.countLte(buyMoveTicks) * 1.0 / (moveHistory.len * 1.0) : 0.0
+  let sellMovePct = moveHistory.len > 0 ? moveHistory.countLte(sellMoveTicks) * 1.0 / (moveHistory.len * 1.0) : 0.0
+  let activity = 0.6 * math.max(countPct, sizePct) + 0.4 * math.min(countPct, sizePct)
+
+  // The dominant side exactly preserves the standalone Flow Shock score.
+  // The opposite-side score is exposed only to make two-sided pressure comparable.
+  let buyScore = 100.0 * (0.45 * activity + 0.30 * buyShare + 0.25 * buyMovePct)
+  let sellScore = 100.0 * (0.45 * activity + 0.30 * sellShare + 0.25 * sellMovePct)
+  let dominantScore = buyDominant ? buyScore : sellScore
+  let qualifies = ready && activity >= activityGatePct / 100.0 && dominantShare >= dominanceGatePct / 100.0 && dominantScore >= scoreGate
+
+  lastActivity = activity
+  latestReady = ready
+  latestBuyScore = buyScore
+  latestSellScore = sellScore
+  latestDominantScore = dominantScore
+  latestDominance = dominantShare
+  latestQualifies = qualifies
+
+  if qualifies && armed {
+    armed = false
+  }
+}
+
+on chart.update {
+  let buyMagnitude = math.clamp(latestBuyScore / 100.0, 0.0, 1.0)
+  let sellMagnitude = math.clamp(latestSellScore / 100.0, 0.0, 1.0)
+  let buyCurve = math.pow(buyMagnitude, intensityGamma) ?? 0.0
+  let sellCurve = math.pow(sellMagnitude, intensityGamma) ?? 0.0
+  let buyAlpha = int(math.round(weakOpacity + (peakOpacity - weakOpacity) * buyCurve, 0)) ?? peakOpacity
+  let sellAlpha = int(math.round(weakOpacity + (peakOpacity - weakOpacity) * sellCurve, 0)) ?? peakOpacity
+  let buyBase = buyScale.sample(latestBuyScore)
+  let sellBase = sellScale.sample(latestSellScore)
+  let buyColor = color.withAlpha(buyBase, buyAlpha)
+  let sellColor = color.withAlpha(sellBase, sellAlpha)
+  let buyGlowAlpha = int(math.round(10.0 + 34.0 * buyCurve, 0)) ?? 24
+  let sellGlowAlpha = int(math.round(10.0 + 34.0 * sellCurve, 0)) ?? 24
+  let buyValue: float? = latestReady ? latestBuyScore : null
+  let sellValue: float? = latestReady ? latestSellScore : null
+
+  buyGlow.plot(buyValue, color: color.withAlpha(buyBase, buyGlowAlpha))
+  sellGlow.plot(sellValue, color: color.withAlpha(sellBase, sellGlowAlpha))
+  buyRibbon.plot(buyValue, color: buyColor)
+  sellRibbon.plot(sellValue, color: sellColor)
+  gatePlot.plot(scoreGate)
+}

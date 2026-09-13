@@ -1,0 +1,259 @@
+script "Flow Shock Halo"
+
+data tape = subscribe(data.trades, history: 15m)
+data chart = subscribe(data.ohlcv)
+
+pane flowPanel = pane(title: "Flow Shock", height: 0.24)
+
+plot (
+  shockPlot = plot.histogram(title: "Shock Score", color: color.withAlpha(color.cyan, 115), showLabel: true, showValue: true, on: flowPanel)
+  activityPlot = plot.line(title: "Activity", color: color.cyan, width: 1.5, showLabel: true, showValue: true, on: flowPanel)
+  dominancePlot = plot.line(title: "Dominance", color: color.amber, width: 1.25, showLabel: true, showValue: true, on: flowPanel)
+  consequencePlot = plot.line(title: "Consequence", color: color.magenta, width: 1.25, showLabel: true, showValue: true, on: flowPanel)
+  thresholdPlot = plot.line(title: "Shock Gate", color: color.gray, width: 1.0, showLabel: false, showValue: true, on: flowPanel)
+)
+
+input (
+  baselineBins = input.int(120, title: "Baseline active seconds", min: 30, max: 600)
+  warmupBins = input.int(30, title: "Minimum warmup seconds", min: 10, max: 120)
+  activityGatePct = input.float(97.5, title: "Activity gate percentile", min: 80.0, max: 100.0)
+  dominanceGatePct = input.float(65.0, title: "Dominant-side minimum", min: 50.0, max: 100.0)
+  scoreGate = input.float(80.0, title: "Shock score minimum", min: 50.0, max: 100.0)
+  releaseGatePct = input.float(90.0, title: "Re-arm below activity", min: 50.0, max: 99.0)
+  showEventLabels = input.bool(true, title: "Show event labels")
+  buyColor = input.color(color.rgb(49, 221, 187), title: "Buy shock")
+  sellColor = input.color(color.rgb(255, 92, 112), title: "Sell shock", sameLine: true)
+)
+
+state (
+  countHistory = rolling<float>(baselineBins)
+  sizeHistory = rolling<float>(baselineBins)
+  moveHistory = rolling<float>(baselineBins)
+
+  hudBoxes = entities.boxPool(max: 12, anchor: anchor.topLeft)
+  hudLabels = entities.labelPool(max: 12, anchor: anchor.topLeft)
+  haloMarkers = entities.markerPool(max: 480)
+  eventLabels = entities.labelPool(max: 120)
+
+  currentSecond: int = -1
+  tradeCount = 0.0
+  buySize = 0.0
+  sellSize = 0.0
+  firstPrice = 0.0
+  lastPrice = 0.0
+  lastActivity = 0.0
+  latestActivity = 0.0
+  latestDominance = 0.5
+  latestConsequence = 0.0
+  latestMoveTicks = 0.0
+  latestScore = 0.0
+  latestImbalance = 0.0
+  latestHistoryReady = false
+  latestQualifies = false
+  armed = true
+  eventSequence = 0
+)
+
+on tape.trade(tr) {
+  let tradeSecond = time.unixSeconds(tr.time) ?? 0
+
+  if currentSecond != tradeSecond {
+    if currentSecond >= 0 && tradeCount > 0.0 {
+      countHistory.push(tradeCount)
+      sizeHistory.push(buySize + sellSize)
+      moveHistory.push(math.abs(lastPrice - firstPrice) / context.tickSize)
+
+      if lastActivity < releaseGatePct / 100.0 {
+        armed = true
+      }
+    }
+
+    currentSecond = tradeSecond
+    tradeCount = 0.0
+    buySize = 0.0
+    sellSize = 0.0
+    firstPrice = tr.price
+    lastPrice = tr.price
+  }
+
+  tradeCount += 1.0
+  lastPrice = tr.price
+  if tr.isBuy {
+    buySize += tr.size
+  } else {
+    sellSize += tr.size
+  }
+
+  let grossSize = buySize + sellSize
+  let imbalance = grossSize > 0.0 ? (buySize - sellSize) / grossSize : 0.0
+  let dominantShare = grossSize > 0.0 ? math.max(buySize, sellSize) / grossSize : 0.5
+  let buyDominant = imbalance >= 0.0
+  let alignedMoveTicks = buyDominant ? math.max(0.0, (lastPrice - firstPrice) / context.tickSize) : math.max(0.0, (firstPrice - lastPrice) / context.tickSize)
+
+  let effectiveWarmup = math.min(warmupBins, baselineBins)
+  let historyReady = countHistory.len >= effectiveWarmup
+  let countPct = countHistory.len > 0 ? countHistory.countLte(tradeCount) * 1.0 / (countHistory.len * 1.0) : 0.0
+  let sizePct = sizeHistory.len > 0 ? sizeHistory.countLte(grossSize) * 1.0 / (sizeHistory.len * 1.0) : 0.0
+  let movePct = moveHistory.len > 0 ? moveHistory.countLte(alignedMoveTicks) * 1.0 / (moveHistory.len * 1.0) : 0.0
+
+  let activity = 0.6 * math.max(countPct, sizePct) + 0.4 * math.min(countPct, sizePct)
+  let score = 100.0 * (0.45 * activity + 0.30 * dominantShare + 0.25 * movePct)
+  lastActivity = activity
+
+  let qualifies = historyReady && activity >= activityGatePct / 100.0 && dominantShare >= dominanceGatePct / 100.0 && score >= scoreGate
+
+  latestActivity = activity
+  latestDominance = dominantShare
+  latestConsequence = movePct
+  latestMoveTicks = alignedMoveTicks
+  latestScore = score
+  latestImbalance = imbalance
+  latestHistoryReady = historyReady
+  latestQualifies = qualifies
+
+  let accent = buyDominant ? buyColor : sellColor
+  let direction = buyDominant ? "BUY" : "SELL"
+
+  // Emit one four-layer halo when the detector crosses into a new shock.
+  if qualifies && armed {
+    eventSequence += 1
+    let eventPrice = tr.price
+    let labelPrice = buyDominant ? eventPrice - context.tickSize * 8.0 : eventPrice + context.tickSize * 8.0
+
+    haloMarkers.get(eventSequence, "halo-outer").set(
+      x: tr.time, y: eventPrice, shape: shape.circle,
+      color: color.withAlpha(accent, 24), size: 46.0, zIndex: 5,
+    )
+    haloMarkers.get(eventSequence, "halo-mid").set(
+      x: tr.time, y: eventPrice, shape: shape.circle,
+      color: color.withAlpha(accent, 45), size: 30.0, zIndex: 6,
+    )
+    haloMarkers.get(eventSequence, "halo-inner").set(
+      x: tr.time, y: eventPrice, shape: shape.circle,
+      color: color.withAlpha(accent, 90), size: 17.0, zIndex: 7,
+    )
+    haloMarkers.get(eventSequence, "core").set(
+      x: tr.time, y: eventPrice, shape: shape.diamond,
+      color: accent, size: 7.0, zIndex: 8,
+    )
+
+    if showEventLabels {
+      eventLabels.get(eventSequence).set(
+        x: tr.time, y: labelPrice,
+        text: str.format("{0} FLOW {1:.0}", direction, score),
+        color: accent, size: 9.0, font: font.mono, textAlign: "center", zIndex: 9,
+      )
+    }
+
+    armed = false
+  }
+}
+
+on chart.update {
+  let buyDominant = latestImbalance >= 0.0
+  let accent = buyDominant ? buyColor : sellColor
+  let direction = buyDominant ? "BUY" : "SELL"
+  let status = !latestHistoryReady ? "WARMING" : (latestQualifies ? "FLOW SHOCK" : (latestScore >= 70.0 ? "ELEVATED" : "NORMAL"))
+  let statusColor = !latestHistoryReady ? color.gray : (latestQualifies ? accent : (latestScore >= 70.0 ? color.orange : color.gray))
+
+  // The panel is normalized to 0-100 so the evidence dimensions remain comparable.
+  shockPlot.plot(latestScore, color: color.withAlpha(accent, latestQualifies ? 165 : 80))
+  activityPlot.plot(latestActivity * 100.0)
+  dominancePlot.plot(latestDominance * 100.0)
+  consequencePlot.plot(latestConsequence * 100.0)
+  thresholdPlot.plot(scoreGate)
+
+  // Fixed glass-like card. Chart updates keep it visible even before tape warmup.
+  hudBoxes.get("glow").set(
+    x1: 12.0, y1: 12.0, x2: 324.0, y2: 246.0,
+    rounding: 16.0,
+    color: color.withAlpha(accent, 18),
+    borderColor: color.withAlpha(accent, 55),
+    borderWidth: 1.0,
+    zIndex: 20,
+  )
+  hudBoxes.get("card").set(
+    x1: 18.0, y1: 18.0, x2: 318.0, y2: 240.0,
+    rounding: 13.0,
+    color: color.rgb(8, 12, 18, 238),
+    borderColor: color.withAlpha(accent, latestQualifies ? 220 : 105),
+    borderWidth: latestQualifies ? 2.0 : 1.0,
+    zIndex: 21,
+  )
+  hudBoxes.get("header").set(
+    x1: 28.0, y1: 28.0, x2: 308.0, y2: 70.0,
+    rounding: 9.0,
+    color: color.withAlpha(accent, latestQualifies ? 42 : 22),
+    zIndex: 22,
+  )
+
+  hudBoxes.get("activity-bg").set(
+    x1: 132.0, y1: 126.0, x2: 298.0, y2: 134.0,
+    rounding: 4.0, color: color.rgb(46, 54, 66, 150), zIndex: 22,
+  )
+  hudBoxes.get("activity-fill").set(
+    x1: 132.0, y1: 126.0, x2: 132.0 + 166.0 * math.clamp(latestActivity, 0.0, 1.0), y2: 134.0,
+    rounding: 4.0, color: color.withAlpha(accent, 220), zIndex: 23,
+  )
+  hudBoxes.get("direction-bg").set(
+    x1: 132.0, y1: 160.0, x2: 298.0, y2: 168.0,
+    rounding: 4.0, color: color.rgb(46, 54, 66, 150), zIndex: 22,
+  )
+  hudBoxes.get("direction-fill").set(
+    x1: 132.0, y1: 160.0, x2: 132.0 + 166.0 * math.clamp(latestDominance, 0.0, 1.0), y2: 168.0,
+    rounding: 4.0, color: color.withAlpha(accent, 195), zIndex: 23,
+  )
+  hudBoxes.get("impact-bg").set(
+    x1: 132.0, y1: 194.0, x2: 298.0, y2: 202.0,
+    rounding: 4.0, color: color.rgb(46, 54, 66, 150), zIndex: 22,
+  )
+  hudBoxes.get("impact-fill").set(
+    x1: 132.0, y1: 194.0, x2: 132.0 + 166.0 * math.clamp(latestConsequence, 0.0, 1.0), y2: 202.0,
+    rounding: 4.0, color: color.withAlpha(accent, 170), zIndex: 23,
+  )
+
+  hudLabels.get("title").set(
+    x: 40.0, y: 40.0, text: "FLOW SHOCK / LIVE",
+    color: color.white, size: 13.0, font: font.mono, textAlign: "left", zIndex: 24,
+  )
+  hudLabels.get("status").set(
+    x: 40.0, y: 58.0, text: status,
+    color: statusColor, size: 11.0, font: font.mono, textAlign: "left", zIndex: 24,
+  )
+  hudLabels.get("score").set(
+    x: 298.0, y: 49.0, text: str.format("{0:.0}", latestScore),
+    color: accent, size: 24.0, font: font.mono, textAlign: "right", zIndex: 24,
+  )
+  hudLabels.get("direction").set(
+    x: 40.0, y: 92.0, text: str.format("{0}  {1:.0}%", direction, latestDominance * 100.0),
+    color: accent, size: 15.0, font: font.mono, textAlign: "left", zIndex: 24,
+  )
+  hudLabels.get("activity-key").set(
+    x: 40.0, y: 124.0, text: "ACTIVITY", color: color.gray,
+    size: 10.0, font: font.mono, textAlign: "left", zIndex: 24,
+  )
+  hudLabels.get("activity-value").set(
+    x: 298.0, y: 124.0, text: str.format("{0:.1}%", latestActivity * 100.0), color: color.white,
+    size: 10.0, font: font.mono, textAlign: "right", zIndex: 24,
+  )
+  hudLabels.get("direction-key").set(
+    x: 40.0, y: 158.0, text: "DOMINANCE", color: color.gray,
+    size: 10.0, font: font.mono, textAlign: "left", zIndex: 24,
+  )
+  hudLabels.get("direction-value").set(
+    x: 298.0, y: 158.0, text: str.format("{0:.1}%", latestDominance * 100.0), color: color.white,
+    size: 10.0, font: font.mono, textAlign: "right", zIndex: 24,
+  )
+  hudLabels.get("impact-key").set(
+    x: 40.0, y: 192.0, text: "CONSEQUENCE", color: color.gray,
+    size: 10.0, font: font.mono, textAlign: "left", zIndex: 24,
+  )
+  hudLabels.get("impact-value").set(
+    x: 298.0, y: 192.0, text: str.format("{0:.1}%  /  {1:.1}t", latestConsequence * 100.0, latestMoveTicks), color: color.white,
+    size: 10.0, font: font.mono, textAlign: "right", zIndex: 24,
+  )
+  hudLabels.get("note").set(
+    x: 40.0, y: 224.0, text: "RESEARCH STATE · NOT AN ENTRY",
+    color: color.rgb(112, 123, 139), size: 9.0, font: font.mono, textAlign: "left", zIndex: 24,
+  )
+}

@@ -9,12 +9,14 @@ EXPECTED = {
     "adversarial-debate",
     "edge-hypothesis",
     "market-microstructure",
+    "mmt-indicator-development",
     "experiment-design",
     "edge-validation",
     "feature-engineering",
     "execution-reality",
     "strategy-red-team",
     "indicator-design",
+    "knowledge-intake",
     "research-journal",
     "research-router",
 }
@@ -66,4 +68,3 @@ class SkillPackageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

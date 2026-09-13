@@ -1,21 +1,26 @@
 {
   "schema_version": 1,
-  "topic": null,
-  "objective": null,
-  "mode": null,
-  "seed_nodes": [],
-  "loaded_nodes": [],
+  "topic": "Flow Shock and Comet intensity ribbon variants",
+  "objective": "Render Flow Shock and Comet Speed Density as compact historical ribbons with dark-chart directional palettes and causal percentile-driven intensity grading without changing their research-state rules.",
+  "mode": "indicator-prototype",
+  "seed_nodes": ["IND-001", "IND-004", "SIG-001", "OQ-002"],
+  "loaded_nodes": ["IND-001", "IND-004", "SIG-001", "SIG-002", "OQ-002", "CON-001"],
   "current_hypotheses": [],
-  "current_concepts": [],
+  "current_concepts": ["SIG-001", "SIG-002", "CON-001", "IND-001", "IND-004", "OQ-002"],
   "current_experiments": [],
-  "unresolved_questions": [],
+  "unresolved_questions": [
+    "Do MMT historical trade replay and live updates produce the same ribbon path for both variants?",
+    "Does the two-line Flow Shock view reveal useful opposing-side structure without obscuring the original dominant-side score?",
+    "Are the Comet drive and density traces visually separable across quiet and liquidation-heavy sessions?",
+    "Do the default opacity curve and palette preserve weak-state visibility without making ordinary observations look exceptional?",
+    "Do any descriptive states predict executable outcomes after matched controls and costs?"
+  ],
   "debate": {
-    "thesis": null,
-    "strongest_support": null,
-    "strongest_objection": null,
-    "belief_update": null
+    "thesis": "Causal percentile values can support a compact graded ribbon that improves historical state comparison without changing the underlying detector or implying new predictive information.",
+    "strongest_support": "Both indicators already maintain prior-only rolling baselines, so ribbon height and intensity can be driven by existing normalized measurements rather than hindsight scaling.",
+    "strongest_objection": "A polished, bright ribbon can create false salience, and trade-only active-second history may not reconstruct continuously or identically in MMT replay.",
+    "belief_update": "Two visual-only variants now use wide glow plus crisp core lines and Ice & Ember magnitude grading. Flow Shock exposes buy and sell scores while preserving the dominant-side score; Comet keeps drive and density separate. No signal rule, evidence grade, or strategy claim was promoted, and platform compile plus replay remain required."
   },
-  "last_query": null,
-  "updated_at": null
+  "last_query": "Turn Flow Shock and Comet Density into reference-like ribbons with an intensity-graded color palette.",
+  "updated_at": "2026-09-13"
 }
-

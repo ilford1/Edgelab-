@@ -40,9 +40,9 @@
       "title": "Impulse exhaustion",
       "summary": "A real-time state in which directional progress becomes harder to sustain; it is not a hindsight-defined terminal pivot.",
       "status": "defined",
-      "tags": ["impulse", "exhaustion", "real-time"],
+      "tags": ["impulse", "exhaustion", "real-time", "effort-response", "book-depth"],
       "path": "research/concepts/CON-001.md",
-      "updated": "2026-09-10"
+      "updated": "2026-09-13"
     },
     {
       "id": "SIG-001",
@@ -50,9 +50,9 @@
       "title": "Price response efficiency",
       "summary": "Directional price progress per unit of contemporaneous aggressive flow, measured using only information available at time t.",
       "status": "draft-definition",
-      "tags": ["price-response", "efficiency", "aggressive-flow"],
+      "tags": ["price-response", "efficiency", "aggressive-flow", "volume-per-move", "price-velocity"],
       "path": "research/signals/SIG-001.md",
-      "updated": "2026-09-10"
+      "updated": "2026-09-13"
     },
     {
       "id": "SIG-002",
@@ -70,9 +70,9 @@
       "title": "Passive liquidity absorption",
       "summary": "Resting or replenishing liquidity absorbs aggressive orders so flow remains directional while price progress decays.",
       "status": "proposed",
-      "tags": ["absorption", "passive-liquidity", "replenishment"],
+      "tags": ["absorption", "passive-liquidity", "replenishment", "side-specific-depth", "order-book"],
       "path": "research/mechanisms/MEC-001.md",
-      "updated": "2026-09-10"
+      "updated": "2026-09-13"
     },
     {
       "id": "MEC-002",
@@ -83,6 +83,16 @@
       "tags": ["volatility", "normalization", "confounder"],
       "path": "research/mechanisms/MEC-002.md",
       "updated": "2026-09-10"
+    },
+    {
+      "id": "MEC-003",
+      "type": "mechanism",
+      "title": "Price-insensitive forced-flow dislocation",
+      "summary": "Constrained or externally motivated flow can overwhelm available liquidity and temporarily dislocate price, while competing traders pull impact forward and compress the opportunity.",
+      "status": "proposed-source-derived",
+      "tags": ["forced-flow", "price-insensitive", "liquidity", "dislocation", "adaptation", "crypto", "venue-leadership"],
+      "path": "research/mechanisms/MEC-003.md",
+      "updated": "2026-09-13"
     },
     {
       "id": "HYP-001",
@@ -157,12 +167,42 @@
     {
       "id": "IND-001",
       "type": "indicator",
-      "title": "Causal response-decay monitor",
-      "summary": "Draft real-time visualization of normalized price response and its change; it is not a validated signal or trading recommendation.",
-      "status": "design-only",
-      "tags": ["indicator", "real-time", "response-decay", "example"],
+      "title": "Flow-shock and response-decay monitor",
+      "summary": "Unvalidated MMT prototype with the original live card and halos plus a compact two-sided, magnitude-graded Flow Shock ribbon; response decay remains design-only.",
+      "status": "prototype-unvalidated",
+      "tags": ["indicator", "real-time", "aggressive-flow", "response-decay", "mmt"],
       "path": "research/indicators/IND-001.md",
-      "updated": "2026-09-10"
+      "updated": "2026-09-13"
+    },
+    {
+      "id": "IND-002",
+      "type": "indicator",
+      "title": "Delta Candle Pressure Divergence v3 port",
+      "summary": "Corrected MMT v3 port with graded dark-chart palettes, a soft-knee pressure ribbon, prior-peak-expanded glow-line CVD, close-confirmed divergence, causal warm-up, and bounded entities.",
+      "status": "platform-runtime-debugging-unverified",
+      "tags": ["indicator", "delta", "divergence", "pressure", "cvd", "mmt-v3"],
+      "path": "research/indicators/IND-002.md",
+      "updated": "2026-09-13"
+    },
+    {
+      "id": "IND-003",
+      "type": "indicator",
+      "title": "Flow Shock x Delta Pressure sequence",
+      "summary": "Unvalidated MMT v3 prototype that permits one aligned Flow Shock arm per confirmed delta-pressure impulse, then upgrades the event through joint pressure decay and price reclaim states.",
+      "status": "prototype-unvalidated",
+      "tags": ["indicator", "flow-shock", "delta-pressure", "deduplication", "state-machine", "mmt-v3"],
+      "path": "research/indicators/IND-003.md",
+      "updated": "2026-09-11"
+    },
+    {
+      "id": "IND-004",
+      "type": "indicator",
+      "title": "Comet speed and density lab",
+      "summary": "Unvalidated MMT v3 research indicator with lab and compact graded-ribbon views that keep two-active-second speed, activity, and volume-per-move density inspectable.",
+      "status": "syntax-informed-prototype-unverified",
+      "tags": ["indicator", "price-velocity", "trade-intensity", "density", "response-fade", "mmt-v3"],
+      "path": "research/indicators/IND-004.md",
+      "updated": "2026-09-13"
     },
     {
       "id": "STR-001",
@@ -185,6 +225,16 @@
       "updated": "2026-09-10"
     },
     {
+      "id": "REJ-002",
+      "type": "rejection",
+      "title": "Naive cross-venue perp funding capture as a standalone edge",
+      "summary": "Source-reported failure in which noisy relative-funding forecasts, basis complexity, fees, execution, and balance fragmentation erased apparent perp-perp carry profits.",
+      "status": "source-reported-rejection-unverified",
+      "tags": ["funding-arbitrage", "perpetuals", "cross-venue", "basis", "execution", "carry"],
+      "path": "research/rejections/REJ-002.md",
+      "updated": "2026-09-13"
+    },
+    {
       "id": "OQ-001",
       "type": "open-question",
       "title": "Does response decay transfer across venues?",
@@ -193,6 +243,26 @@
       "tags": ["cross-venue", "robustness", "microstructure"],
       "path": "research/open-questions/OQ-001.md",
       "updated": "2026-09-10"
+    },
+    {
+      "id": "OQ-002",
+      "type": "open-question",
+      "title": "Does joint speed and density identify scalpable impulses?",
+      "summary": "Test whether price-velocity and trade-intensity acceleration jointly identify executable short-horizon opportunity, and whether volume-per-move distinguishes absorption from thin displacement.",
+      "status": "open-unvalidated",
+      "tags": ["price-velocity", "trade-intensity", "density", "scalping", "exhaustion"],
+      "path": "research/open-questions/OQ-002.md",
+      "updated": "2026-09-13"
+    },
+    {
+      "id": "OQ-003",
+      "type": "open-question",
+      "title": "Does consumed-side depth recovery predict LTF reversal?",
+      "summary": "Test whether consumed-side depth retreat followed by persistent replenishment during continued taker pressure predicts failed continuation or reversal at executable prices.",
+      "status": "open-unvalidated",
+      "tags": ["order-book", "depth-dispersion", "taker-flow", "replenishment", "ltf-reversal"],
+      "path": "research/open-questions/OQ-003.md",
+      "updated": "2026-09-13"
     }
   ],
   "edges": [
@@ -216,11 +286,55 @@
     { "source": "HYP-001", "relation": "valid_in_regime", "target": "REG-001", "note": "Illustrative conditional claim, not validated." },
     { "source": "HYP-001", "relation": "fails_in_regime", "target": "REG-002", "note": "Illustrative failure claim retained alongside the supportive regime; not validated." },
     { "source": "SIG-001", "relation": "implemented_by", "target": "IND-001" },
+    { "source": "SIG-002", "relation": "implemented_by", "target": "IND-001" },
     { "source": "IND-001", "relation": "derived_from", "target": "SIG-001" },
+    { "source": "IND-001", "relation": "derived_from", "target": "SIG-002" },
+    { "source": "SIG-001", "relation": "implemented_by", "target": "IND-002" },
+    { "source": "SIG-002", "relation": "implemented_by", "target": "IND-002" },
+    { "source": "IND-002", "relation": "derived_from", "target": "SIG-001" },
+    { "source": "IND-002", "relation": "derived_from", "target": "SIG-002" },
+    { "source": "IND-002", "relation": "related_to", "target": "REJ-001", "note": "Implements the descriptive divergence construct without reopening the rejected standalone edge claim." },
+    { "source": "REJ-001", "relation": "related_to", "target": "IND-002", "note": "The port remains an unvalidated research indicator, not evidence of reversal expectancy." },
+    { "source": "SIG-001", "relation": "implemented_by", "target": "IND-003" },
+    { "source": "SIG-002", "relation": "implemented_by", "target": "IND-003" },
+    { "source": "IND-003", "relation": "derived_from", "target": "SIG-001" },
+    { "source": "IND-003", "relation": "derived_from", "target": "SIG-002" },
+    { "source": "IND-003", "relation": "related_to", "target": "IND-001", "note": "Adds pressure-impulse deduplication and staged decay/reclaim to the Flow Shock prototype." },
+    { "source": "IND-001", "relation": "related_to", "target": "IND-003" },
+    { "source": "IND-003", "relation": "related_to", "target": "IND-002", "note": "Uses the ported adaptive pressure state as directional context rather than a standalone reversal trigger." },
+    { "source": "IND-002", "relation": "related_to", "target": "IND-003" },
+    { "source": "IND-003", "relation": "related_to", "target": "REJ-001", "note": "The staged combination does not reopen the rejected claim that raw divergence alone is a reversal edge." },
+    { "source": "REJ-001", "relation": "related_to", "target": "IND-003" },
     { "source": "STR-001", "relation": "depends_on", "target": "HYP-001" },
     { "source": "STR-001", "relation": "uses_signal", "target": "SIG-001" },
     { "source": "HYP-001", "relation": "supersedes", "target": "REJ-001", "note": "The narrower measurable claim replaces the underspecified standalone divergence idea." },
     { "source": "OQ-001", "relation": "related_to", "target": "HYP-001" },
-    { "source": "HYP-001", "relation": "related_to", "target": "OQ-001" }
+    { "source": "HYP-001", "relation": "related_to", "target": "OQ-001" },
+    { "source": "MEC-003", "relation": "related_to", "target": "MEC-001", "note": "Forced flow is an upstream demand-for-liquidity mechanism; passive absorption determines its price consequence." },
+    { "source": "MEC-001", "relation": "related_to", "target": "MEC-003" },
+    { "source": "MEC-003", "relation": "related_to", "target": "IND-001", "note": "Candidate mechanism for some observed flow shocks; the indicator must not infer participant identity from aggressive flow alone." },
+    { "source": "IND-001", "relation": "related_to", "target": "MEC-003" },
+    { "source": "OQ-002", "relation": "related_to", "target": "SIG-001", "note": "Separates price velocity, trade intensity, total-volume density, and signed response efficiency before testing joint states." },
+    { "source": "SIG-001", "relation": "related_to", "target": "OQ-002" },
+    { "source": "OQ-002", "relation": "related_to", "target": "CON-001", "note": "Tests whether continued activity with declining response identifies exhaustion without defining reversal in hindsight." },
+    { "source": "CON-001", "relation": "related_to", "target": "OQ-002" },
+    { "source": "OQ-002", "relation": "related_to", "target": "MEC-001", "note": "Passive absorption is one possible explanation for high volume with low displacement and requires quote/depth confirmation." },
+    { "source": "MEC-001", "relation": "related_to", "target": "OQ-002" },
+    { "source": "OQ-003", "relation": "related_to", "target": "MEC-001", "note": "Tests passive absorption using side-specific retreat, persistent replenishment, and declining executable response." },
+    { "source": "MEC-001", "relation": "related_to", "target": "OQ-003" },
+    { "source": "OQ-003", "relation": "related_to", "target": "CON-001", "note": "Treats post-stress rollover as a candidate exhaustion state without embedding reversal in the label." },
+    { "source": "CON-001", "relation": "related_to", "target": "OQ-003" },
+    { "source": "OQ-003", "relation": "related_to", "target": "HYP-001", "note": "Adds book-side replenishment as a candidate discriminator for the existing failed-continuation claim." },
+    { "source": "HYP-001", "relation": "related_to", "target": "OQ-003" },
+    { "source": "OQ-003", "relation": "related_to", "target": "MEC-002", "note": "Depth-band, tick-size, spread, and window arithmetic may create an apparent rollover without participant-level absorption." },
+    { "source": "MEC-002", "relation": "related_to", "target": "OQ-003" },
+    { "source": "REJ-002", "relation": "related_to", "target": "OQ-001", "note": "The source-reported failure highlights venue-specific funding clocks, fees, execution, basis, and balance constraints rather than proving universal failure." },
+    { "source": "OQ-001", "relation": "related_to", "target": "REJ-002" },
+    { "source": "SIG-001", "relation": "implemented_by", "target": "IND-004", "note": "Implements price movement per activity alongside raw speed and density components without treating the indicator as evidence." },
+    { "source": "IND-004", "relation": "derived_from", "target": "SIG-001" },
+    { "source": "CON-001", "relation": "implemented_by", "target": "IND-004", "note": "Operationalizes a descriptive response-fade state as declining speed under continued activity, not a reversal prediction." },
+    { "source": "IND-004", "relation": "derived_from", "target": "CON-001" },
+    { "source": "OQ-002", "relation": "related_to", "target": "IND-004", "note": "The prototype exists to make the open speed-and-density question replayable and falsifiable." },
+    { "source": "IND-004", "relation": "related_to", "target": "OQ-002" }
   ]
 }

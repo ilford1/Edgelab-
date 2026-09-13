@@ -1,0 +1,4 @@
+interface:
+  display_name: "MMT Indicator Development"
+  short_description: "Build and debug MMT Scripting v3 indicators"
+  default_prompt: "Use $mmt-indicator-development to design or implement this indicator in MMT Scripting v3 using official syntax and causal real-time behavior."

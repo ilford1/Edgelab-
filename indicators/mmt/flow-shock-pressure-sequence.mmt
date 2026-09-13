@@ -1,0 +1,509 @@
+script "Flow Shock x Delta Pressure"
+
+input (
+  input.tab(title: "Flow shock", key: "flow_tab")
+  baselineSeconds = input.int(120, title: "Baseline active seconds", min: 30, max: 600)
+  tapeWarmup = input.int(30, title: "Minimum tape warmup", min: 10, max: 120)
+  activityGatePct = input.float(97.5, title: "Activity gate percentile", min: 80.0, max: 100.0)
+  dominanceGatePct = input.float(65.0, title: "Dominant-side minimum", min: 50.0, max: 100.0)
+  shockScoreGate = input.float(80.0, title: "Shock score minimum", min: 50.0, max: 100.0)
+  tapeReleasePct = input.float(90.0, title: "Tape slowdown percentile", min: 50.0, max: 99.0)
+
+  input.tab(title: "Delta pressure", key: "pressure_tab")
+  pressureLookback = input.int(240, title: "Adaptation period", min: 30, max: 1000)
+  deltaPeriod = input.int(12, title: "Rolling delta period", min: 2, max: 200)
+  pressureSensitivity = input.int(100, title: "Pressure sensitivity", min: 50, max: 200)
+  pressureExitRatio = input.float(0.65, title: "Pressure neutral exit ratio", min: 0.10, max: 1.0)
+
+  input.tab(title: "Sequence", key: "sequence_tab")
+  pressureDecayRatio = input.float(0.65, title: "Pressure decay from peak", min: 0.20, max: 0.95)
+  reclaimTicksNeeded = input.float(2.0, title: "Reclaim ticks for confirmation", min: 0.0, max: 50.0)
+  maxContinuationTicks = input.float(12.0, title: "Maximum continuation ticks", min: 1.0, max: 200.0)
+  maxWaitSeconds = input.int(8, title: "Maximum wait seconds", min: 2, max: 60)
+  enableConfirmedAlerts = input.bool(false, title: "Alert on confirmed reclaim")
+
+  input.tab(title: "Appearance", key: "appearance_tab")
+  showArmMarkers = input.bool(true, title: "Show armed markers")
+  showLabels = input.bool(true, title: "Show event labels")
+  buyColor = input.color(color.rgb(49, 221, 187), title: "Buy pressure")
+  sellColor = input.color(color.rgb(255, 92, 112), title: "Sell pressure", sameLine: true)
+)
+
+setup (
+  pressureWarmup = math.max(20, deltaPeriod)
+  thresholdMultiplier = 100.0 / (pressureSensitivity * 1.0)
+)
+
+data (
+  chart = subscribe(data.ohlcv, history: pressureLookback + deltaPeriod + 50)
+  tape = subscribe(data.trades, history: 15m)
+)
+
+pane sequencePanel = pane(title: "Flow x Pressure Sequence", height: 0.26)
+
+plot (
+  shockPlot = plot.histogram(title: "Flow score", color: color.withAlpha(color.cyan, 95), showLabel: true, showValue: true, on: sequencePanel)
+  activityPlot = plot.line(title: "Tape activity", color: color.cyan, width: 1.4, showLabel: true, showValue: true, on: sequencePanel)
+  pressurePlot = plot.line(title: "Delta pressure", color: color.amber, width: 1.5, showLabel: true, showValue: true, on: sequencePanel)
+  decayPlot = plot.line(title: "Pressure decay gate", color: color.magenta, width: 1.0, style: linestyle.dotted, showLabel: true, showValue: true, on: sequencePanel)
+  stagePlot = plot.line(title: "Sequence stage", color: color.white, width: 2.0, style: linestyle.step, showLabel: true, showValue: true, on: sequencePanel)
+)
+
+type ConfirmedPayload {
+  direction: string
+  price: float
+  shockScore: float
+  pressureDecay: float
+  reclaimTicks: float
+}
+
+alert confirmedAlert = alert(
+  title: "Flow shock pressure reclaim",
+  description: "An aligned flow shock slowed, delta pressure decayed, and price reclaimed against the impulse.",
+  payload: ConfirmedPayload,
+)
+
+state (
+  countHistory = rolling<float>(baselineSeconds)
+  sizeHistory = rolling<float>(baselineSeconds)
+  moveHistory = rolling<float>(baselineSeconds)
+
+  pressureBaseline = rolling<float>(pressureLookback)
+  pressureState: int = 0
+  pressureImpulseId: int = 0
+  adaptiveScale = 1.0
+  adaptiveEntry = 1.0
+  adaptiveExit = 0.65
+
+  currentSecond: int = -1
+  tradeCount = 0.0
+  buySize = 0.0
+  sellSize = 0.0
+  firstPrice = 0.0
+  lastPrice = 0.0
+  lastActivity = 0.0
+
+  latestActivity = 0.0
+  latestDominance = 0.5
+  latestConsequence = 0.0
+  latestShockScore = 0.0
+  latestPressureStrength = 0.0
+  latestPressureDirection: int = 0
+  latestTapeReady = false
+  latestPressureReady = false
+
+  sequenceStage: int = 0
+  armedDirection: int = 0
+  armedImpulseId: int = -1
+  lastConsumedImpulseId: int = -1
+  armedSecond: int = -1
+  armedPrice = 0.0
+  armedExtremePrice = 0.0
+  armedShockScore = 0.0
+  peakPressureStrength = 0.0
+  realizedPressureDecay = 0.0
+  realizedReclaimTicks = 0.0
+
+  eventSequence: int = 0
+  hudBoxes = entities.boxPool(max: 12, anchor: anchor.topLeft)
+  hudLabels = entities.labelPool(max: 14, anchor: anchor.topLeft)
+  eventMarkers = entities.markerPool(max: 480)
+  eventLabels = entities.labelPool(max: 160)
+)
+
+fn smoothAdaptive(previous: float, target: float, riseAlpha: float, fallAlpha: float) -> float {
+  if previous <= 0.0 {
+    return target
+  }
+  let speed = math.clamp(240.0 / (pressureLookback * 1.0), 0.5, 2.0)
+  let alpha = target > previous ? riseAlpha * speed : fallAlpha * speed
+  return previous + (target - previous) * math.clamp(alpha, 0.0, 1.0)
+}
+
+fn resolvePressure(previous: int, rollingDelta: float, entry: float, exit: float) -> int {
+  if previous > 0 {
+    if rollingDelta <= -entry {
+      return -1
+    }
+    return rollingDelta >= exit ? 1 : 0
+  }
+  if previous < 0 {
+    if rollingDelta >= entry {
+      return 1
+    }
+    return rollingDelta <= -exit ? -1 : 0
+  }
+  if rollingDelta >= entry {
+    return 1
+  }
+  if rollingDelta <= -entry {
+    return -1
+  }
+  return 0
+}
+
+on chart.close {
+  let delta = chart.delta()
+  let rollingDelta = ta.sum(delta, deltaPeriod)
+
+  if delta != null && rollingDelta != null {
+    let absoluteRolling = math.abs(rollingDelta)
+    let scaleTarget = math.max(1.0, absoluteRolling) * thresholdMultiplier
+    let entryTarget = math.max(0.0000001, scaleTarget * 0.55)
+    let exitTarget = entryTarget * 0.55
+
+    // Causal approximation of the v2 percentile and Otsu adaptation.
+    if pressureBaseline.len >= 20 {
+      let bins = int[](64)
+      for b in 0..64 {
+        bins.push(0)
+      }
+      let sampleMax = math.max(1.0, pressureBaseline.max() ?? 1.0)
+      for sample in pressureBaseline {
+        let rawBin = int(math.floor(sample / sampleMax * 63.0)) ?? 0
+        let bin = math.clamp(rawBin, 0, 63)
+        bins.set(bin, (bins[bin] ?? 0) + 1)
+      }
+
+      let cumulative: int = 0
+      let p45 = sampleMax
+      let p68 = sampleMax
+      let p88 = sampleMax
+      let p92 = sampleMax
+      let found45 = false
+      let found68 = false
+      let found88 = false
+      let found92 = false
+      let weightedTotal = 0.0
+      for b in 0..64 {
+        let count = bins[b] ?? 0
+        let value = sampleMax * ((b + 1) * 1.0) / 64.0
+        weightedTotal += value * (count * 1.0)
+        cumulative += count
+        if !found45 && cumulative * 100 >= pressureBaseline.len * 45 {
+          p45 = value
+          found45 = true
+        }
+        if !found68 && cumulative * 100 >= pressureBaseline.len * 68 {
+          p68 = value
+          found68 = true
+        }
+        if !found88 && cumulative * 100 >= pressureBaseline.len * 88 {
+          p88 = value
+          found88 = true
+        }
+        if !found92 && cumulative * 100 >= pressureBaseline.len * 92 {
+          p92 = value
+          found92 = true
+        }
+      }
+
+      let leftCount: int = 0
+      let leftSum = 0.0
+      let bestScore = -1.0
+      let naturalSplit = p68
+      for b in 0..64 {
+        let count = bins[b] ?? 0
+        let value = sampleMax * ((b + 1) * 1.0) / 64.0
+        leftCount += count
+        leftSum += value * (count * 1.0)
+        let rightCount = pressureBaseline.len - leftCount
+        if leftCount > 0 && rightCount > 0 {
+          let leftMean = leftSum / (leftCount * 1.0)
+          let rightMean = (weightedTotal - leftSum) / (rightCount * 1.0)
+          let difference = leftMean - rightMean
+          let score = (leftCount * 1.0) * (rightCount * 1.0) * difference * difference
+          if score > bestScore {
+            bestScore = score
+            naturalSplit = value
+          }
+        }
+      }
+
+      scaleTarget = math.max(1.0, p92) * thresholdMultiplier
+      let rawEntry = math.max(p68, math.min(p88, naturalSplit))
+      entryTarget = math.max(0.0000001, rawEntry * thresholdMultiplier)
+      let rawExit = math.min(rawEntry, math.max(p45, rawEntry * pressureExitRatio))
+      exitTarget = math.max(0.0000001, rawExit * thresholdMultiplier)
+    }
+
+    let nextScale = math.max(1.0, smoothAdaptive(adaptiveScale, scaleTarget, 0.12, 0.025))
+    let nextEntry = math.max(0.0000001, smoothAdaptive(adaptiveEntry, entryTarget, 0.10, 0.03))
+    let nextExit = math.min(nextEntry, math.max(0.0000001, smoothAdaptive(adaptiveExit, exitTarget, 0.10, 0.03)))
+    let ready = chart.index >= pressureWarmup
+    let nextPressure = ready ? resolvePressure(pressureState, rollingDelta, nextEntry, nextExit) : 0
+
+    if nextPressure != 0 && nextPressure != pressureState {
+      pressureImpulseId += 1
+    }
+
+    pressureState = nextPressure
+    adaptiveScale = nextScale
+    adaptiveEntry = nextEntry
+    adaptiveExit = nextExit
+    pressureBaseline.push(absoluteRolling)
+  }
+}
+
+on tape.trade(tr) {
+  let tradeSecond = time.unixSeconds(tr.time) ?? 0
+  let secondChanged = currentSecond != tradeSecond
+  let hadCompletedSecond = currentSecond >= 0
+  let completedActivity = lastActivity
+
+  if secondChanged {
+    if hadCompletedSecond && tradeCount > 0.0 {
+      countHistory.push(tradeCount)
+      sizeHistory.push(buySize + sellSize)
+      moveHistory.push(math.abs(lastPrice - firstPrice) / context.tickSize)
+    }
+    currentSecond = tradeSecond
+    tradeCount = 0.0
+    buySize = 0.0
+    sellSize = 0.0
+    firstPrice = tr.price
+    lastPrice = tr.price
+  }
+
+  tradeCount += 1.0
+  lastPrice = tr.price
+  if tr.isBuy {
+    buySize += tr.size
+  } else {
+    sellSize += tr.size
+  }
+
+  let grossSize = buySize + sellSize
+  let imbalance = grossSize > 0.0 ? (buySize - sellSize) / grossSize : 0.0
+  let dominantShare = grossSize > 0.0 ? math.max(buySize, sellSize) / grossSize : 0.5
+  let shockDirection = imbalance >= 0.0 ? 1 : -1
+  let alignedMoveTicks = shockDirection > 0 ? math.max(0.0, (lastPrice - firstPrice) / context.tickSize) : math.max(0.0, (firstPrice - lastPrice) / context.tickSize)
+
+  let tapeReady = countHistory.len >= math.min(tapeWarmup, baselineSeconds)
+  let countPct = countHistory.len > 0 ? countHistory.countLte(tradeCount) * 1.0 / (countHistory.len * 1.0) : 0.0
+  let sizePct = sizeHistory.len > 0 ? sizeHistory.countLte(grossSize) * 1.0 / (sizeHistory.len * 1.0) : 0.0
+  let movePct = moveHistory.len > 0 ? moveHistory.countLte(alignedMoveTicks) * 1.0 / (moveHistory.len * 1.0) : 0.0
+  let activity = 0.6 * math.max(countPct, sizePct) + 0.4 * math.min(countPct, sizePct)
+  let shockScore = 100.0 * (0.45 * activity + 0.30 * dominantShare + 0.25 * movePct)
+  let shockQualified = tapeReady && activity >= activityGatePct / 100.0 && dominantShare >= dominanceGatePct / 100.0 && shockScore >= shockScoreGate
+
+  let formingBuy = chart.forming.buyVolume ?? 0.0
+  let formingSell = chart.forming.sellVolume ?? 0.0
+  let formingDelta = formingBuy - formingSell
+  let priorRolling = ta.sum(chart.delta(), deltaPeriod - 1) ?? 0.0
+  let liveRollingDelta = priorRolling + formingDelta
+  let livePressure = resolvePressure(pressureState, liveRollingDelta, adaptiveEntry, adaptiveExit)
+  let pressureStrength = math.abs(liveRollingDelta) / math.max(1.0, adaptiveScale)
+  let pressureReady = pressureBaseline.len >= 20
+
+  latestActivity = activity
+  latestDominance = dominantShare
+  latestConsequence = movePct
+  latestShockScore = shockScore
+  latestPressureStrength = pressureStrength
+  latestPressureDirection = livePressure
+  latestTapeReady = tapeReady
+  latestPressureReady = pressureReady
+  lastActivity = activity
+
+  // Reset the visual state when the confirmed pressure impulse ends or changes.
+  if sequenceStage > 0 && (pressureState == 0 || pressureImpulseId != armedImpulseId) {
+    sequenceStage = 0
+    armedDirection = 0
+  }
+
+  // One arm per confirmed delta-pressure impulse. Repeated shock seconds only
+  // update the peak and price extreme. They do not create additional signals.
+  let aligned = pressureState != 0 && pressureState == shockDirection
+  let mayArm = pressureImpulseId != lastConsumedImpulseId
+  if sequenceStage == 0 && pressureReady && shockQualified && aligned && mayArm {
+    sequenceStage = 1
+    armedDirection = shockDirection
+    armedImpulseId = pressureImpulseId
+    lastConsumedImpulseId = pressureImpulseId
+    armedSecond = tradeSecond
+    armedPrice = tr.price
+    armedExtremePrice = tr.price
+    armedShockScore = shockScore
+    peakPressureStrength = math.max(pressureStrength, 0.0000001)
+    realizedPressureDecay = 0.0
+    realizedReclaimTicks = 0.0
+    eventSequence += 1
+
+    let accent = armedDirection > 0 ? buyColor : sellColor
+    if showArmMarkers {
+      eventMarkers.get(eventSequence, "arm-outer").set(
+        tr.time, tr.price, shape: shape.circle,
+        color: color.withAlpha(accent, 28), size: 25.0, zIndex: 5,
+      )
+      eventMarkers.get(eventSequence, "arm-core").set(
+        tr.time, tr.price, shape: shape.circle,
+        color: color.withAlpha(accent, 150), size: 7.0, zIndex: 6,
+      )
+      if showLabels {
+        let labelPrice = armedDirection > 0 ? tr.price - context.tickSize * 6.0 : tr.price + context.tickSize * 6.0
+        eventLabels.get(eventSequence, "arm").set(
+          tr.time, labelPrice, "ARM",
+          color: accent, size: 8.0, font: font.mono, textAlign: "center", zIndex: 7,
+        )
+      }
+    }
+  }
+
+  if sequenceStage == 1 && armedDirection == shockDirection && shockQualified {
+    armedShockScore = math.max(armedShockScore, shockScore)
+  }
+
+  if sequenceStage == 1 || sequenceStage == 2 {
+    peakPressureStrength = math.max(peakPressureStrength, pressureStrength)
+    if armedDirection > 0 {
+      armedExtremePrice = math.max(armedExtremePrice, tr.price)
+    } else {
+      armedExtremePrice = math.min(armedExtremePrice, tr.price)
+    }
+
+    let continuationTicks = armedDirection > 0 ? (armedExtremePrice - armedPrice) / context.tickSize : (armedPrice - armedExtremePrice) / context.tickSize
+    let elapsedSeconds = tradeSecond - armedSecond
+    let pressureFlipped = livePressure != 0 && livePressure != armedDirection
+
+    if continuationTicks > maxContinuationTicks || elapsedSeconds > maxWaitSeconds || pressureFlipped {
+      sequenceStage = 4
+    }
+  }
+
+  // A completed slower tape second plus pressure decay creates the exhaustion
+  // state. Price reclaim remains a separate upgrade, not another arm gate.
+  if sequenceStage == 1 && secondChanged && hadCompletedSecond {
+    let tapeSlowed = completedActivity < tapeReleasePct / 100.0
+    let pressureDecayed = pressureStrength <= peakPressureStrength * pressureDecayRatio
+    if tapeSlowed && pressureDecayed {
+      sequenceStage = 2
+      realizedPressureDecay = peakPressureStrength > 0.0 ? pressureStrength / peakPressureStrength : 1.0
+      eventSequence += 1
+      let accent = armedDirection > 0 ? buyColor : sellColor
+      eventMarkers.get(eventSequence, "decay-outer").set(
+        tr.time, tr.price, shape: shape.circle,
+        color: color.withAlpha(accent, 28), size: 42.0, zIndex: 5,
+      )
+      eventMarkers.get(eventSequence, "decay-mid").set(
+        tr.time, tr.price, shape: shape.circle,
+        color: color.withAlpha(accent, 60), size: 27.0, zIndex: 6,
+      )
+      eventMarkers.get(eventSequence, "decay-core").set(
+        tr.time, tr.price, shape: shape.diamond,
+        color: accent, size: 8.0, zIndex: 7,
+      )
+      if showLabels {
+        let labelPrice = armedDirection > 0 ? tr.price - context.tickSize * 8.0 : tr.price + context.tickSize * 8.0
+        eventLabels.get(eventSequence, "decay").set(
+          tr.time, labelPrice, "DECAY",
+          color: accent, size: 9.0, font: font.mono, textAlign: "center", zIndex: 8,
+        )
+      }
+    }
+  }
+
+  if sequenceStage == 2 {
+    let reclaimTicks = armedDirection > 0 ? (armedExtremePrice - tr.price) / context.tickSize : (tr.price - armedExtremePrice) / context.tickSize
+    realizedReclaimTicks = math.max(0.0, reclaimTicks)
+    if reclaimTicks >= reclaimTicksNeeded {
+      sequenceStage = 3
+      eventSequence += 1
+      let accent = armedDirection > 0 ? buyColor : sellColor
+      let reversalColor = armedDirection > 0 ? sellColor : buyColor
+      eventMarkers.get(eventSequence, "confirm-outer").set(
+        tr.time, tr.price, shape: shape.circle,
+        color: color.withAlpha(reversalColor, 38), size: 52.0, zIndex: 5,
+      )
+      eventMarkers.get(eventSequence, "confirm-mid").set(
+        tr.time, tr.price, shape: shape.circle,
+        color: color.withAlpha(reversalColor, 85), size: 31.0, zIndex: 6,
+      )
+      eventMarkers.get(eventSequence, "confirm-inner").set(
+        tr.time, tr.price, shape: shape.circle,
+        color: color.withAlpha(reversalColor, 145), size: 17.0, zIndex: 7,
+      )
+      eventMarkers.get(eventSequence, "confirm-core").set(
+        tr.time, tr.price, shape: shape.diamond,
+        color: reversalColor, size: 8.0, zIndex: 8,
+      )
+      if showLabels {
+        let direction = armedDirection > 0 ? "SELL RECLAIM" : "BUY RECLAIM"
+        let labelPrice = armedDirection > 0 ? tr.price - context.tickSize * 9.0 : tr.price + context.tickSize * 9.0
+        eventLabels.get(eventSequence, "confirm").set(
+          tr.time, labelPrice, direction,
+          color: reversalColor, size: 9.0, font: font.mono, textAlign: "center", zIndex: 9,
+        )
+      }
+      if enableConfirmedAlerts {
+        confirmedAlert.trigger(ConfirmedPayload {
+          direction: armedDirection > 0 ? "Sell reclaim" : "Buy reclaim",
+          price: tr.price,
+          shockScore: armedShockScore,
+          pressureDecay: realizedPressureDecay,
+          reclaimTicks: realizedReclaimTicks,
+        })
+      }
+    }
+  }
+}
+
+on chart.update {
+  let activeDirection = sequenceStage > 0 ? armedDirection : pressureState
+  let accent = activeDirection > 0 ? buyColor : (activeDirection < 0 ? sellColor : color.gray)
+  let direction = activeDirection > 0 ? "BUY PRESSURE" : (activeDirection < 0 ? "SELL PRESSURE" : "NO CONTEXT")
+  let ready = latestTapeReady && latestPressureReady
+  let status = !ready ? "WARMING" : (sequenceStage == 1 ? "ARMED" : (sequenceStage == 2 ? "PRESSURE DECAY" : (sequenceStage == 3 ? "RECLAIM CONFIRMED" : (sequenceStage == 4 ? "INVALIDATED" : "WAITING"))))
+  let statusColor = sequenceStage == 3 ? (armedDirection > 0 ? sellColor : buyColor) : (sequenceStage == 4 ? color.gray : accent)
+  let pressurePct = math.clamp(latestPressureStrength * 100.0, 0.0, 100.0)
+  let decayPct = math.clamp(peakPressureStrength * pressureDecayRatio * 100.0, 0.0, 100.0)
+  let stageValue = sequenceStage == 1 ? 25.0 : (sequenceStage == 2 ? 60.0 : (sequenceStage == 3 ? 100.0 : (sequenceStage == 4 ? 0.0 : null)))
+
+  shockPlot.plot(latestShockScore, color: color.withAlpha(accent, sequenceStage > 0 ? 150 : 65))
+  activityPlot.plot(latestActivity * 100.0)
+  pressurePlot.plot(pressurePct)
+  decayPlot.plot(sequenceStage == 1 || sequenceStage == 2 ? decayPct : null)
+  stagePlot.plot(stageValue, color: statusColor)
+
+  hudBoxes.get("glow").set(
+    12.0, 12.0, 334.0, 260.0,
+    rounding: 16.0,
+    color: color.withAlpha(statusColor, sequenceStage > 0 ? 22 : 10),
+    borderColor: color.withAlpha(statusColor, sequenceStage > 0 ? 75 : 35),
+    borderWidth: 1.0,
+    zIndex: 20,
+  )
+  hudBoxes.get("card").set(
+    18.0, 18.0, 328.0, 254.0,
+    rounding: 13.0,
+    color: color.rgb(8, 12, 18, 238),
+    borderColor: color.withAlpha(statusColor, sequenceStage == 3 ? 235 : 115),
+    borderWidth: sequenceStage == 3 ? 2.0 : 1.0,
+    zIndex: 21,
+  )
+  hudBoxes.get("header").set(
+    28.0, 28.0, 318.0, 74.0,
+    rounding: 9.0,
+    color: color.withAlpha(statusColor, sequenceStage > 0 ? 40 : 18),
+    zIndex: 22,
+  )
+
+  hudBoxes.get("flow-bg").set(138.0, 128.0, 306.0, 136.0, rounding: 4.0, color: color.rgb(46, 54, 66, 150), zIndex: 22)
+  hudBoxes.get("flow-fill").set(138.0, 128.0, 138.0 + 168.0 * math.clamp(latestActivity, 0.0, 1.0), 136.0, rounding: 4.0, color: color.withAlpha(accent, 220), zIndex: 23)
+  hudBoxes.get("pressure-bg").set(138.0, 166.0, 306.0, 174.0, rounding: 4.0, color: color.rgb(46, 54, 66, 150), zIndex: 22)
+  hudBoxes.get("pressure-fill").set(138.0, 166.0, 138.0 + 168.0 * pressurePct / 100.0, 174.0, rounding: 4.0, color: color.withAlpha(accent, 190), zIndex: 23)
+  hudBoxes.get("decay-bg").set(138.0, 204.0, 306.0, 212.0, rounding: 4.0, color: color.rgb(46, 54, 66, 150), zIndex: 22)
+  hudBoxes.get("decay-fill").set(138.0, 204.0, 138.0 + 168.0 * math.clamp(realizedReclaimTicks / math.max(1.0, reclaimTicksNeeded), 0.0, 1.0), 212.0, rounding: 4.0, color: color.withAlpha(statusColor, 185), zIndex: 23)
+
+  hudLabels.get("title").set(40.0, 41.0, "FLOW SHOCK x DELTA PRESSURE", color: color.white, size: 12.0, font: font.mono, textAlign: "left", zIndex: 24)
+  hudLabels.get("status").set(40.0, 62.0, status, color: statusColor, size: 11.0, font: font.mono, textAlign: "left", zIndex: 24)
+  hudLabels.get("score").set(306.0, 51.0, str.format("{0:.0}", latestShockScore), color: accent, size: 24.0, font: font.mono, textAlign: "right", zIndex: 24)
+  hudLabels.get("direction").set(40.0, 96.0, direction, color: accent, size: 13.0, font: font.mono, textAlign: "left", zIndex: 24)
+  hudLabels.get("flow-key").set(40.0, 126.0, "TAPE", color: color.gray, size: 10.0, font: font.mono, textAlign: "left", zIndex: 24)
+  hudLabels.get("flow-value").set(306.0, 126.0, str.format("{0:.1}%", latestActivity * 100.0), color: color.white, size: 10.0, font: font.mono, textAlign: "right", zIndex: 24)
+  hudLabels.get("pressure-key").set(40.0, 164.0, "PRESSURE", color: color.gray, size: 10.0, font: font.mono, textAlign: "left", zIndex: 24)
+  hudLabels.get("pressure-value").set(306.0, 164.0, str.format("{0:.1}%", pressurePct), color: color.white, size: 10.0, font: font.mono, textAlign: "right", zIndex: 24)
+  hudLabels.get("reclaim-key").set(40.0, 202.0, "RECLAIM", color: color.gray, size: 10.0, font: font.mono, textAlign: "left", zIndex: 24)
+  hudLabels.get("reclaim-value").set(306.0, 202.0, str.format("{0:.1}t / {1:.1}t", realizedReclaimTicks, reclaimTicksNeeded), color: color.white, size: 10.0, font: font.mono, textAlign: "right", zIndex: 24)
+  hudLabels.get("note").set(40.0, 238.0, "RESEARCH STATE · ONE PER IMPULSE", color: color.rgb(112, 123, 139), size: 9.0, font: font.mono, textAlign: "left", zIndex: 24)
+}
