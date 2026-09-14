@@ -1,28 +1,69 @@
 script "Comet Speed Density Ribbon"
 
 input (
-  baselineSeconds = input.int(180, title: "Baseline active seconds", min: 30, max: 900)
-  warmupSeconds = input.int(45, title: "Minimum warmup seconds", min: 10, max: 180)
-  speedGatePct = input.float(90.0, title: "Speed percentile gate", min: 60.0, max: 99.9)
-  activityGatePct = input.float(90.0, title: "Activity percentile gate", min: 60.0, max: 99.9)
-  activityReleasePct = input.float(65.0, title: "Drive release percentile", min: 20.0, max: 90.0)
-  denseGatePct = input.float(70.0, title: "Dense move percentile", min: 50.0, max: 99.0)
-  thinGatePct = input.float(30.0, title: "Thin move percentile", min: 1.0, max: 50.0)
-  speedDecayRatio = input.float(0.60, title: "Response-fade speed ratio", min: 0.10, max: 0.95)
-  densityFloorTicks = input.float(0.25, title: "Density move floor (ticks)", min: 0.05, max: 10.0)
+  input.tab(title: "Detection", key: "tab_detection")
+  input.group(title: "Market preset", key: "group_market_preset")
+  preset = input.select(
+    "Custom",
+    title: "Preset",
+    options: ["High Volatility", "Slow Market", "Custom"],
+    key: "preset",
+    description: "High Volatility is stricter, Slow Market is more sensitive, and Custom exposes every detector setting.",
+  )
 
-  palette = input.select("Ice & Ember", title: "Palette", options: ["Ice & Ember", "Aurora", "Muted Pro", "Custom"])
-  weakOpacity = input.int(72, title: "Weak ribbon opacity", min: 20, max: 160)
-  peakOpacity = input.int(255, title: "Peak ribbon opacity", min: 160, max: 255, sameLine: true)
-  intensityGamma = input.float(0.72, title: "Intensity grading", min: 0.25, max: 2.0)
-  customBearishPeak = input.color(color.rgb(255, 48, 67), title: "Custom bearish peak", when: palette == "Custom")
-  customBearishMid = input.color(color.rgb(102, 20, 31), title: "Custom bearish mid", sameLine: true, when: palette == "Custom")
-  customNeutral = input.color(color.rgb(112, 118, 128), title: "Custom neutral", when: palette == "Custom")
-  customBullishMid = input.color(color.rgb(17, 55, 94), title: "Custom bullish mid", sameLine: true, when: palette == "Custom")
-  customBullishPeak = input.color(color.rgb(73, 158, 255), title: "Custom bullish peak", sameLine: true, when: palette == "Custom")
+  input.group(title: "Custom detector", key: "group_custom_detector", collapsible: true, when: preset == "Custom")
+  baselineSeconds = input.int(180, title: "Baseline active seconds", min: 30, max: 900, key: "baselineSeconds", when: preset == "Custom")
+  warmupSeconds = input.int(45, title: "Minimum warmup seconds", min: 10, max: 180, key: "warmupSeconds", when: preset == "Custom")
+  speedGatePct = input.float(90.0, title: "Speed percentile gate", min: 60.0, max: 99.9, key: "speedGatePct", when: preset == "Custom")
+  activityGatePct = input.float(90.0, title: "Activity percentile gate", min: 60.0, max: 99.9, key: "activityGatePct", when: preset == "Custom")
+  activityReleasePct = input.float(65.0, title: "Drive release percentile", min: 20.0, max: 90.0, key: "activityReleasePct", when: preset == "Custom")
+  denseGatePct = input.float(70.0, title: "Dense move percentile", min: 50.0, max: 99.0, key: "denseGatePct", when: preset == "Custom")
+  thinGatePct = input.float(30.0, title: "Thin move percentile", min: 1.0, max: 50.0, key: "thinGatePct", when: preset == "Custom")
+  speedDecayRatio = input.float(0.60, title: "Response-fade speed ratio", min: 0.10, max: 0.95, key: "speedDecayRatio", when: preset == "Custom")
+  densityFloorTicks = input.float(0.25, title: "Density move floor (ticks)", min: 0.05, max: 10.0, key: "densityFloorTicks", when: preset == "Custom")
+
+  input.tab(title: "Visual", key: "tab_visual")
+  input.group(title: "Display appearance", key: "group_display_appearance")
+  visualMode = input.select(
+    "Histogram",
+    title: "Visual mode",
+    options: ["Histogram", "Dual Ribbon"],
+    key: "visualMode",
+    description: "Histogram draws one continuous host-candle average. Dual Ribbon compares averaged drive and density as thin glowing lines.",
+  )
+  histogramMeasure = input.select(
+    "Drive",
+    title: "Histogram measure",
+    options: ["Drive", "Density"],
+    key: "histogramMeasure",
+    description: "Choose joint speed/activity drive or volume-per-move density as the single histogram series.",
+    when: visualMode == "Histogram",
+  )
+  histogramHighlightPct = input.float(65.0, title: "Histogram highlight level", min: 30.0, max: 95.0, key: "histogramHighlightPct", when: visualMode == "Histogram")
+  palette = input.select("Ice & Ember", title: "Palette", options: ["Ice & Ember", "Aurora", "Muted Pro", "Custom"], key: "palette")
+  weakOpacity = input.int(72, title: "Weak opacity", min: 20, max: 160, key: "weakOpacity")
+  peakOpacity = input.int(255, title: "Peak opacity", min: 160, max: 255, key: "peakOpacity", sameLine: true)
+  intensityGamma = input.float(0.72, title: "Intensity grading", min: 0.25, max: 2.0, key: "intensityGamma")
+
+  input.group(title: "Custom palette", key: "group_custom_palette", collapsible: true, when: palette == "Custom")
+  customBearishPeak = input.color(color.rgb(255, 48, 67), title: "Custom bearish peak", key: "customBearishPeak", when: palette == "Custom")
+  customBearishMid = input.color(color.rgb(102, 20, 31), title: "Custom bearish mid", key: "customBearishMid", sameLine: true, when: palette == "Custom")
+  customNeutral = input.color(color.rgb(112, 118, 128), title: "Custom neutral", key: "customNeutral", when: palette == "Custom")
+  customBullishMid = input.color(color.rgb(17, 55, 94), title: "Custom bullish mid", key: "customBullishMid", sameLine: true, when: palette == "Custom")
+  customBullishPeak = input.color(color.rgb(73, 158, 255), title: "Custom bullish peak", key: "customBullishPeak", sameLine: true, when: palette == "Custom")
 )
 
 setup (
+  detectorBaselineSeconds = preset == "High Volatility" ? 300 : (preset == "Slow Market" ? 240 : baselineSeconds)
+  detectorWarmupSeconds = preset == "High Volatility" ? 90 : (preset == "Slow Market" ? 60 : warmupSeconds)
+  detectorSpeedGatePct = preset == "High Volatility" ? 95.0 : (preset == "Slow Market" ? 82.0 : speedGatePct)
+  detectorActivityGatePct = preset == "High Volatility" ? 94.0 : (preset == "Slow Market" ? 82.0 : activityGatePct)
+  detectorActivityReleasePct = preset == "High Volatility" ? 70.0 : (preset == "Slow Market" ? 55.0 : activityReleasePct)
+  detectorDenseGatePct = preset == "High Volatility" ? 80.0 : (preset == "Slow Market" ? 65.0 : denseGatePct)
+  detectorThinGatePct = preset == "High Volatility" ? 20.0 : (preset == "Slow Market" ? 35.0 : thinGatePct)
+  detectorSpeedDecayRatio = preset == "High Volatility" ? 0.50 : (preset == "Slow Market" ? 0.70 : speedDecayRatio)
+  detectorDensityFloorTicks = preset == "High Volatility" ? 0.50 : (preset == "Slow Market" ? 0.10 : densityFloorTicks)
+
   bearishPeak = palette == "Ice & Ember" ? color.rgb(255, 48, 67) : (palette == "Aurora" ? color.rgb(255, 54, 132) : (palette == "Muted Pro" ? color.rgb(222, 92, 101) : customBearishPeak))
   bearishMid = palette == "Ice & Ember" ? color.rgb(102, 20, 31) : (palette == "Aurora" ? color.rgb(100, 24, 68) : (palette == "Muted Pro" ? color.rgb(91, 47, 52) : customBearishMid))
   neutral = palette == "Ice & Ember" ? color.rgb(112, 118, 128) : (palette == "Aurora" ? color.rgb(108, 108, 128) : (palette == "Muted Pro" ? color.rgb(122, 126, 134) : customNeutral))
@@ -36,32 +77,24 @@ setup (
   )
 )
 
-data (
-  chart = subscribe(data.ohlcv)
-  tape = subscribe(data.trades, history: 30m)
-)
+data seconds = subscribe(data.ohlcv, timeframe: tf("1s"), history: 6h)
 
-pane ribbonPane = pane(title: "Comet Speed + Density Ribbon", height: 0.16)
+pane ribbonPane = pane(title: "Comet Speed + Density", height: 0.16)
 
 plot (
-  driveGlow = plot.line(title: "Comet drive glow", width: 5.0, showLabel: false, showValue: false, on: ribbonPane)
-  densityGlow = plot.line(title: "Density glow", width: 3.5, showLabel: false, showValue: false, on: ribbonPane)
-  driveRibbon = plot.line(title: "Directional drive", width: 1.7, showLabel: true, showValue: true, on: ribbonPane)
-  densityRibbon = plot.line(title: "Directional density", width: 1.1, showLabel: true, showValue: true, on: ribbonPane)
+  observationHistogram = plot.histogram(title: "Directional observation", showLabel: visualMode == "Histogram", showValue: visualMode == "Histogram", on: ribbonPane)
+  driveGlow = plot.line(title: "Directional drive glow", width: 5.0, showLabel: false, showValue: false, on: ribbonPane)
+  densityGlow = plot.line(title: "Directional density glow", width: 5.0, showLabel: false, showValue: false, on: ribbonPane)
+  driveRibbon = plot.line(title: "Directional drive", width: 1.6, showLabel: visualMode == "Dual Ribbon", showValue: visualMode == "Dual Ribbon", on: ribbonPane)
+  densityRibbon = plot.line(title: "Directional density", width: 1.6, showLabel: visualMode == "Dual Ribbon", showValue: visualMode == "Dual Ribbon", on: ribbonPane)
   zeroPlot = plot.line(title: "Zero", color: color.withAlpha(color.silver, 28), width: 0.7, showLabel: false, showValue: false, on: ribbonPane)
 )
 
 state (
-  speedHistory = rolling<float>(baselineSeconds)
-  countHistory = rolling<float>(baselineSeconds)
-  sizeHistory = rolling<float>(baselineSeconds)
-  densityHistory = rolling<float>(baselineSeconds)
-
-  currentSecond: int = -1
-  tradeCount = 0.0
-  grossSize = 0.0
-  firstPrice = 0.0
-  lastPrice = 0.0
+  speedHistory = rolling<float>(detectorBaselineSeconds)
+  countHistory = rolling<float>(detectorBaselineSeconds)
+  sizeHistory = rolling<float>(detectorBaselineSeconds)
+  densityHistory = rolling<float>(detectorBaselineSeconds)
 
   hasPreviousBucket = false
   previousMoveTicks = 0.0
@@ -71,121 +104,199 @@ state (
   driveActive = false
   driveDirection: int = 0
   drivePeakSpeed = 0.0
-
-  latestReady = false
   latestState: int = 0
-  latestDirection: int = 0
-  latestImpulseDirection: int = 0
-  latestSpeedPct = 0.0
-  latestActivityPct = 0.0
-  latestDensityPct = 0.0
+
+  displayBucket: time? = null
+  barSampleCount = 0
+  barDriveSum = 0.0
+  barDensitySum = 0.0
 )
 
-on tape.trade(tr) {
-  let tradeSecond = time.unixSeconds(tr.time) ?? 0
+fn scoreSecond(rawMoveTicks: float, tradeCount: float, grossSize: float) -> (bool, float, float, float, float, int) {
+  let smoothMoveTicks = hasPreviousBucket ? (rawMoveTicks + previousMoveTicks) / 2.0 : rawMoveTicks
+  let smoothSpeed = hasPreviousBucket ? (math.abs(rawMoveTicks) + math.abs(previousMoveTicks)) / 2.0 : math.abs(rawMoveTicks)
+  let smoothCount = hasPreviousBucket ? (tradeCount + previousCount) / 2.0 : tradeCount
+  let smoothSize = hasPreviousBucket ? (grossSize + previousSize) / 2.0 : grossSize
+  let density = smoothSize / math.max(detectorDensityFloorTicks, smoothSpeed)
 
-  if currentSecond != tradeSecond {
-    if currentSecond >= 0 && tradeCount > 0.0 {
-      let rawMoveTicks = (lastPrice - firstPrice) / context.tickSize
-      let smoothMoveTicks = hasPreviousBucket ? (rawMoveTicks + previousMoveTicks) / 2.0 : rawMoveTicks
-      let smoothSpeed = hasPreviousBucket ? (math.abs(rawMoveTicks) + math.abs(previousMoveTicks)) / 2.0 : math.abs(rawMoveTicks)
-      let smoothCount = hasPreviousBucket ? (tradeCount + previousCount) / 2.0 : tradeCount
-      let smoothSize = hasPreviousBucket ? (grossSize + previousSize) / 2.0 : grossSize
-      let density = smoothSize / math.max(densityFloorTicks, smoothSpeed)
+  let effectiveWarmup = math.min(detectorWarmupSeconds, detectorBaselineSeconds)
+  let ready = speedHistory.len >= effectiveWarmup && countHistory.len >= effectiveWarmup && sizeHistory.len >= effectiveWarmup && densityHistory.len >= effectiveWarmup
+  let speedPct = speedHistory.len > 0 ? speedHistory.countLte(smoothSpeed) * 1.0 / (speedHistory.len * 1.0) : 0.0
+  let countPct = countHistory.len > 0 ? countHistory.countLte(smoothCount) * 1.0 / (countHistory.len * 1.0) : 0.0
+  let sizePct = sizeHistory.len > 0 ? sizeHistory.countLte(smoothSize) * 1.0 / (sizeHistory.len * 1.0) : 0.0
+  let densityPct = densityHistory.len > 0 ? densityHistory.countLte(density) * 1.0 / (densityHistory.len * 1.0) : 0.0
+  let activityPct = 0.6 * math.max(countPct, sizePct) + 0.4 * math.min(countPct, sizePct)
+  let direction = smoothMoveTicks > 0.0 ? 1 : (smoothMoveTicks < 0.0 ? -1 : 0)
 
-      let effectiveWarmup = math.min(warmupSeconds, baselineSeconds)
-      let ready = speedHistory.len >= effectiveWarmup && countHistory.len >= effectiveWarmup && sizeHistory.len >= effectiveWarmup && densityHistory.len >= effectiveWarmup
-      let speedPct = speedHistory.len > 0 ? speedHistory.countLte(smoothSpeed) * 1.0 / (speedHistory.len * 1.0) : 0.0
-      let countPct = countHistory.len > 0 ? countHistory.countLte(smoothCount) * 1.0 / (countHistory.len * 1.0) : 0.0
-      let sizePct = sizeHistory.len > 0 ? sizeHistory.countLte(smoothSize) * 1.0 / (sizeHistory.len * 1.0) : 0.0
-      let densityPct = densityHistory.len > 0 ? densityHistory.countLte(density) * 1.0 / (densityHistory.len * 1.0) : 0.0
-      let activityPct = 0.6 * math.max(countPct, sizePct) + 0.4 * math.min(countPct, sizePct)
-      let direction = smoothMoveTicks > 0.0 ? 1 : (smoothMoveTicks < 0.0 ? -1 : 0)
-
-      let speedHigh = speedPct >= speedGatePct / 100.0
-      let activityHigh = activityPct >= activityGatePct / 100.0
-      let activityReleased = activityPct < activityReleasePct / 100.0
-      let denseMove = densityPct >= denseGatePct / 100.0
-      let thinMove = densityPct <= thinGatePct / 100.0
-      let drive = ready && direction != 0 && speedHigh && activityHigh
-      let responseFade = ready && driveActive && activityHigh && denseMove && smoothSpeed <= drivePeakSpeed * speedDecayRatio
-
-      latestReady = ready
-      latestDirection = direction
-      latestSpeedPct = speedPct
-      latestActivityPct = activityPct
-      latestDensityPct = densityPct
-
-      if responseFade {
-        latestState = 3
-        latestImpulseDirection = driveDirection
-        driveActive = false
-        driveDirection = 0
-        drivePeakSpeed = 0.0
-      } else if drive {
-        let continuingDrive = driveActive && driveDirection == direction
-        latestState = thinMove ? 1 : (denseMove ? 2 : 4)
-        driveDirection = direction
-        latestImpulseDirection = direction
-        drivePeakSpeed = continuingDrive ? math.max(drivePeakSpeed, smoothSpeed) : smoothSpeed
-        driveActive = true
-      } else {
-        latestState = ready && activityHigh && denseMove ? 2 : 0
-        if activityReleased || !ready {
-          driveActive = false
-          driveDirection = 0
-          drivePeakSpeed = 0.0
-        } else if driveActive {
-          drivePeakSpeed = math.max(drivePeakSpeed, smoothSpeed)
-        }
-      }
-
-      // Score first, then append: the current sample never enters its own baseline.
-      speedHistory.push(smoothSpeed)
-      countHistory.push(smoothCount)
-      sizeHistory.push(smoothSize)
-      densityHistory.push(density)
-
-      previousMoveTicks = rawMoveTicks
-      previousCount = tradeCount
-      previousSize = grossSize
-      hasPreviousBucket = true
-    }
-
-    currentSecond = tradeSecond
-    tradeCount = 0.0
-    grossSize = 0.0
-    firstPrice = tr.price
-    lastPrice = tr.price
-  }
-
-  tradeCount += 1.0
-  grossSize += tr.size
-  lastPrice = tr.price
+  return ready, smoothSpeed, speedPct, activityPct, densityPct, direction
 }
 
-on chart.update {
-  // Height compares joint speed/activity with density; sign remains actual price direction.
-  // These are display coordinates only. The research-state thresholds above are unchanged.
-  let drivePct = 0.6 * math.max(latestSpeedPct, latestActivityPct) + 0.4 * math.min(latestSpeedPct, latestActivityPct)
-  let signedDrive = latestDirection * drivePct * 100.0
-  let signedDensity = latestDirection * latestDensityPct * 100.0
-  let driveMagnitude = math.clamp(math.abs(signedDrive) / 100.0, 0.0, 1.0)
-  let densityMagnitude = math.clamp(math.abs(signedDensity) / 100.0, 0.0, 1.0)
+fn selectDisplayBucket(ts: time) {
+  let nextBucket = time.floor(ts, context.timeframe)
+  if displayBucket == null || displayBucket != nextBucket {
+    displayBucket = nextBucket
+    barSampleCount = 0
+    barDriveSum = 0.0
+    barDensitySum = 0.0
+  }
+}
+
+fn renderVisual(sampleCount: int, driveSum: float, densitySum: float) {
+  let hasSamples = sampleCount > 0
+  let divisor = hasSamples ? sampleCount * 1.0 : 1.0
+  let driveValue = driveSum / divisor
+  let densityValue = densitySum / divisor
+  let driveMagnitude = math.clamp(math.abs(driveValue) / 100.0, 0.0, 1.0)
+  let densityMagnitude = math.clamp(math.abs(densityValue) / 100.0, 0.0, 1.0)
   let driveCurve = math.pow(driveMagnitude, intensityGamma) ?? 0.0
   let densityCurve = math.pow(densityMagnitude, intensityGamma) ?? 0.0
   let driveAlpha = int(math.round(weakOpacity + (peakOpacity - weakOpacity) * driveCurve, 0)) ?? peakOpacity
   let densityAlpha = int(math.round(weakOpacity + (peakOpacity - weakOpacity) * densityCurve, 0)) ?? peakOpacity
-  let driveBase = ribbonScale.sample(signedDrive)
-  let densityBase = ribbonScale.sample(signedDensity)
+  let driveBase = ribbonScale.sample(driveValue)
+  let densityBase = ribbonScale.sample(densityValue)
+  let driveColor = color.withAlpha(driveBase, driveAlpha)
+  let densityColor = color.withAlpha(densityBase, densityAlpha)
   let driveGlowAlpha = int(math.round(10.0 + 34.0 * driveCurve, 0)) ?? 24
-  let densityGlowAlpha = int(math.round(8.0 + 26.0 * densityCurve, 0)) ?? 18
-  let driveValue: float? = latestReady && latestDirection != 0 ? signedDrive : null
-  let densityValue: float? = latestReady && latestDirection != 0 ? signedDensity : null
+  let densityGlowAlpha = int(math.round(10.0 + 34.0 * densityCurve, 0)) ?? 24
+  let selectedValue = histogramMeasure == "Density" ? densityValue : driveValue
+  let selectedCurve = histogramMeasure == "Density" ? densityCurve : driveCurve
+  let selectedAlpha = int(math.round(weakOpacity + (peakOpacity - weakOpacity) * selectedCurve, 0)) ?? peakOpacity
+  let selectedStrong = math.abs(selectedValue) >= histogramHighlightPct
+  let histogramBase = selectedStrong ? ribbonScale.sample(selectedValue) : neutral
+  let histogramValue: float? = (visualMode == "Histogram" && hasSamples) ? selectedValue : null
+  let ribbonDrive: float? = (visualMode == "Dual Ribbon" && hasSamples) ? driveValue : null
+  let ribbonDensity: float? = (visualMode == "Dual Ribbon" && hasSamples) ? densityValue : null
+  let zeroValue: float? = visualMode == "Histogram" ? 0.0 : null
+  let stateLabel = latestState == 1 ? "THIN DRIVE" : (latestState == 2 ? "DENSE ACTIVITY" : (latestState == 3 ? "RESPONSE FADE" : (latestState == 4 ? "ACTIVE DRIVE" : "NORMAL")))
+  let displayLabel = visualMode == "Histogram" ? str.format("Histogram {0}", histogramMeasure) : "Dual Ribbon"
 
-  driveGlow.plot(driveValue, color: color.withAlpha(driveBase, driveGlowAlpha))
-  densityGlow.plot(densityValue, color: color.withAlpha(densityBase, densityGlowAlpha))
-  driveRibbon.plot(driveValue, color: color.withAlpha(driveBase, driveAlpha))
-  densityRibbon.plot(densityValue, color: color.withAlpha(densityBase, densityAlpha))
-  zeroPlot.plot(0.0)
+  observationHistogram.plot(histogramValue, color: color.withAlpha(histogramBase, selectedAlpha))
+  driveGlow.plot(ribbonDrive, color: color.withAlpha(driveBase, driveGlowAlpha))
+  densityGlow.plot(ribbonDensity, color: color.withAlpha(densityBase, densityGlowAlpha))
+  driveRibbon.plot(ribbonDrive, color: driveColor)
+  densityRibbon.plot(ribbonDensity, color: densityColor)
+  zeroPlot.plot(zeroValue)
+  ribbonPane.setTitle(str.format("Comet {0} · {1} · {2}", displayLabel, preset, stateLabel))
+}
+
+on seconds.close {
+  let secondTime = seconds.time
+  let secondOpen = seconds.open
+  let secondClose = seconds.close
+  let secondVolume = seconds.volume
+  let secondTrades = seconds.trades
+
+  if secondTime == null || secondOpen == null || secondClose == null || secondVolume == null || secondTrades == null {
+    return
+  }
+
+  let tradeCount = (secondTrades ?? 0) * 1.0
+  let grossSize = secondVolume ?? 0.0
+  if tradeCount <= 0.0 || grossSize <= 0.0 {
+    return
+  }
+
+  let eventTime = secondTime ?? time.fromUnixSeconds(0)
+  let rawMoveTicks = ((secondClose ?? 0.0) - (secondOpen ?? 0.0)) / context.tickSize
+  let ready, smoothSpeed, speedPct, activityPct, densityPct, direction = scoreSecond(rawMoveTicks, tradeCount, grossSize)
+  let speedHigh = speedPct >= detectorSpeedGatePct / 100.0
+  let activityHigh = activityPct >= detectorActivityGatePct / 100.0
+  let activityReleased = activityPct < detectorActivityReleasePct / 100.0
+  let denseMove = densityPct >= detectorDenseGatePct / 100.0
+  let thinMove = densityPct <= detectorThinGatePct / 100.0
+  let drive = ready && direction != 0 && speedHigh && activityHigh
+  let responseFade = ready && driveActive && activityHigh && denseMove && smoothSpeed <= drivePeakSpeed * detectorSpeedDecayRatio
+
+  if responseFade {
+    latestState = 3
+    driveActive = false
+    driveDirection = 0
+    drivePeakSpeed = 0.0
+  } else if drive {
+    let continuingDrive = driveActive && driveDirection == direction
+    latestState = thinMove ? 1 : (denseMove ? 2 : 4)
+    driveDirection = direction
+    drivePeakSpeed = continuingDrive ? math.max(drivePeakSpeed, smoothSpeed) : smoothSpeed
+    driveActive = true
+  } else {
+    latestState = ready && activityHigh && denseMove ? 2 : 0
+    if activityReleased || !ready {
+      driveActive = false
+      driveDirection = 0
+      drivePeakSpeed = 0.0
+    } else if driveActive {
+      drivePeakSpeed = math.max(drivePeakSpeed, smoothSpeed)
+    }
+  }
+
+  // Score first, then append: the completed second never enters its own baseline.
+  let smoothCount = hasPreviousBucket ? (tradeCount + previousCount) / 2.0 : tradeCount
+  let smoothSize = hasPreviousBucket ? (grossSize + previousSize) / 2.0 : grossSize
+  let density = smoothSize / math.max(detectorDensityFloorTicks, smoothSpeed)
+  speedHistory.push(smoothSpeed)
+  countHistory.push(smoothCount)
+  sizeHistory.push(smoothSize)
+  densityHistory.push(density)
+
+  previousMoveTicks = rawMoveTicks
+  previousCount = tradeCount
+  previousSize = grossSize
+  hasPreviousBucket = true
+
+  selectDisplayBucket(eventTime)
+  if ready && direction != 0 {
+    let drivePct = 0.6 * math.max(speedPct, activityPct) + 0.4 * math.min(speedPct, activityPct)
+    let signedDrive = direction * drivePct * 100.0
+    let signedDensity = direction * densityPct * 100.0
+
+    barSampleCount += 1
+    barDriveSum += signedDrive
+    barDensitySum += signedDensity
+  }
+
+  renderVisual(barSampleCount, barDriveSum, barDensitySum)
+}
+
+on seconds.update {
+  // Preview the forming second at the live edge without adding it to the causal baseline.
+  if !seconds.isRealtime || !seconds.isLast {
+    return
+  }
+
+  let formingTime = seconds.forming.time
+  let formingOpen = seconds.forming.open
+  let formingClose = seconds.forming.close
+  let formingVolume = seconds.forming.volume
+  let formingTrades = seconds.forming.trades
+
+  if formingTime == null || formingOpen == null || formingClose == null || formingVolume == null || formingTrades == null {
+    return
+  }
+
+  let tradeCount = (formingTrades ?? 0) * 1.0
+  let grossSize = formingVolume ?? 0.0
+  if tradeCount <= 0.0 || grossSize <= 0.0 {
+    return
+  }
+
+  let eventTime = formingTime ?? time.fromUnixSeconds(0)
+  let rawMoveTicks = ((formingClose ?? 0.0) - (formingOpen ?? 0.0)) / context.tickSize
+  let ready, _, speedPct, activityPct, densityPct, direction = scoreSecond(rawMoveTicks, tradeCount, grossSize)
+  selectDisplayBucket(eventTime)
+
+  let previewSampleCount = barSampleCount
+  let previewDriveSum = barDriveSum
+  let previewDensitySum = barDensitySum
+
+  if ready && direction != 0 {
+    let drivePct = 0.6 * math.max(speedPct, activityPct) + 0.4 * math.min(speedPct, activityPct)
+    let signedDrive = direction * drivePct * 100.0
+    let signedDensity = direction * densityPct * 100.0
+
+    previewSampleCount += 1
+    previewDriveSum += signedDrive
+    previewDensitySum += signedDensity
+  }
+
+  renderVisual(previewSampleCount, previewDriveSum, previewDensitySum)
 }

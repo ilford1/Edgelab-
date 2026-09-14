@@ -1,0 +1,857 @@
+script "Delta Candle Pressure Divergence v3"
+
+input (
+  input.tab(title: "Pressure", key: "pressure_tab")
+  preset = input.select("Automatic", title: "Preset", options: ["Automatic", "Scalp 1m", "Scalp 5m", "Custom"], key: "preset")
+
+  input.group(title: "Custom adaptation", key: "custom_adaptation", collapsible: true, collapsed: false, when: preset == "Custom")
+  customAdaptationPeriod = input.int(240, title: "Adaptation period", min: 30, max: 1000, key: "adaptation_period", when: preset == "Custom")
+  customSensitivity = input.int(100, title: "Color sensitivity", min: 50, max: 200, key: "sensitivity", when: preset == "Custom")
+  customDeltaPeriod = input.int(12, title: "Delta period", min: 2, max: 200, key: "delta_period", when: preset == "Custom")
+  customAdaptationSpeed = input.float(1.0, title: "Adaptation speed", min: 0.5, max: 2.0, key: "adaptation_speed", when: preset == "Custom")
+  customColorIntensity = input.int(100, title: "Color intensity", min: 25, max: 200, key: "color_intensity", when: preset == "Custom")
+  customColorGamma = input.float(1.0, title: "Color gamma", min: 0.25, max: 3.0, key: "color_gamma", when: preset == "Custom")
+  customNeutralExitRatio = input.float(0.65, title: "Neutral exit ratio", min: 0.1, max: 1.0, key: "neutral_exit_ratio", when: preset == "Custom")
+  customImpulseClimax = input.float(0.75, title: "Minimum impulse climax", min: 0.1, max: 2.0, key: "impulse_climax", when: preset == "Custom")
+
+  input.tab(title: "Visual style", key: "visual_style")
+  visualPalette = input.select("Ice & Ember", title: "Palette", options: ["Ice & Ember", "Aurora", "Muted Pro", "Custom"], key: "visual_palette", description: "Dark-chart palettes inspired by the supplied pressure and CVD references.")
+  showCandles = input.bool(true, title: "Show pressure candles", key: "show_candles")
+  showPressureRibbon = input.bool(true, title: "Show pressure ribbon", key: "show_pressure_ribbon", description: "Shows pressure as either the signed histogram or two competing buy/sell traces.")
+  pressureVisualMode = input.select("Histogram", title: "Pressure visual mode", options: ["Histogram", "Dual ribbon"], key: "pressure_visual_mode", when: showPressureRibbon)
+  pressureSoftCap = input.int(200, title: "Pressure ribbon soft cap", min: 125, max: 400, key: "pressure_soft_cap_v2", description: "Color is fully saturated at 100, while column height continues smoothly toward this value without a hard plateau.", when: showPressureRibbon && pressureVisualMode == "Histogram")
+  pressureVisibleRange = input.int(240, title: "Pressure visible range", min: 150, max: 500, key: "pressure_visible_range_v2", description: "Adds vertical headroom and is automatically kept above the ribbon soft cap.", when: showPressureRibbon && pressureVisualMode == "Histogram")
+  weakPressureOpacity = input.int(58, title: "Weak pressure opacity", min: 15, max: 119, key: "weak_pressure_opacity")
+  strongPressureOpacity = input.int(245, title: "Peak pressure opacity", min: 120, max: 255, key: "strong_pressure_opacity", sameLine: true)
+  neutralPressureOpacity = input.int(233, title: "Neutral visibility", min: 150, max: 255, key: "neutral_visibility_v2", description: "Controls neutral-candle opacity across MMT's complete alpha range.")
+  bearishPeakColor = input.color(color.rgb(255, 55, 72), title: "Custom bearish peak", key: "bearish_peak", when: visualPalette == "Custom")
+  bearishMidColor = input.color(color.rgb(107, 24, 35), title: "Custom bearish mid", key: "bearish_mid", sameLine: true, when: visualPalette == "Custom")
+  neutralColor = input.color(color.rgb(112, 118, 128), title: "Custom neutral", key: "neutral_color", when: visualPalette == "Custom")
+  bullishMidColor = input.color(color.rgb(20, 62, 104), title: "Custom bullish mid", key: "bullish_mid", sameLine: true, when: visualPalette == "Custom")
+  bullishPeakColor = input.color(color.rgb(79, 164, 255), title: "Custom bullish peak", key: "bullish_peak", sameLine: true, when: visualPalette == "Custom")
+
+  input.tab(title: "Levels and alerts", key: "levels_tab")
+  showWickLevels = input.bool(true, title: "Show candidate impulse-extreme levels", key: "show_wick_levels")
+  includeNeutralLevels = input.bool(true, title: "Include significant neutral pivots", key: "include_neutral_levels", when: showWickLevels)
+  minImpulseBars = input.int(2, title: "Minimum impulse bars", min: 1, max: 20, key: "min_impulse_bars", when: showWickLevels)
+  maxRetainedLevels = input.int(80, title: "Maximum retained levels", min: 10, max: 240, key: "max_retained_levels", when: showWickLevels)
+  wickLevelColor = input.color(color.rgb(112, 129, 153, 105), title: "Level color", key: "wick_level_color", when: showWickLevels)
+  wickLevelWidth = input.int(1, title: "Level width", min: 1, max: 5, key: "wick_level_width", when: showWickLevels)
+  enableImpulseAlerts = input.bool(false, title: "Enable confirmed impulse alerts", key: "enable_impulse_alerts")
+
+  input.tab(title: "CVD pane", key: "cvd_tab")
+  showCvd = input.bool(true, title: "Show session CVD", key: "show_cvd")
+  cvdAdaptiveColors = input.bool(true, title: "Grade CVD with pressure palette", key: "cvd_adaptive_colors", when: showCvd)
+  cvdPositiveColor = input.color(color.rgb(79, 164, 255), title: "Positive CVD", key: "cvd_positive", when: showCvd && !cvdAdaptiveColors)
+  cvdNegativeColor = input.color(color.rgb(255, 55, 72), title: "Negative CVD", key: "cvd_negative", sameLine: true, when: showCvd && !cvdAdaptiveColors)
+  cvdGlowOpacity = input.int(38, title: "CVD glow", min: 0, max: 100, key: "cvd_glow_opacity", when: showCvd)
+  showVolumeBackdrop = input.bool(false, title: "Show normalized volume backdrop", key: "show_volume_backdrop", when: showCvd)
+  volumeBackdropColor = input.color(color.rgb(105, 119, 138, 28), title: "Volume backdrop", key: "volume_backdrop_color", when: showCvd && showVolumeBackdrop)
+  scaleCvdPerSession = input.bool(false, title: "Scale CVD per session", key: "scale_cvd_per_session", description: "When enabled, 100 represents the prior confirmed UTC-session peak, allowing new extremes to expand beyond 100.", when: showCvd)
+  cvdExpansionCap = input.int(200, title: "Normalized expansion cap", min: 100, max: 400, key: "cvd_expansion_cap_v2", description: "Limits unusually large moves relative to the prior confirmed session peak.", when: showCvd && scaleCvdPerSession)
+  cvdVisibleRange = input.int(300, title: "Normalized visible range", min: 150, max: 600, key: "cvd_visible_range_v2", description: "Sets pane headroom. It is automatically kept above the expansion cap.", when: showCvd && scaleCvdPerSession)
+
+  input.tab(title: "Delta divergence", key: "divergence_tab")
+  showDivergence = input.bool(true, title: "Show confirmed delta divergence", key: "show_divergence")
+  showDevelopingDivergence = input.bool(false, title: "Preview developing divergence", key: "show_developing_divergence", description: "Shows a temporary marker while the forming bar is ending an impulse. It can disappear before close and never triggers an alert.", when: showDivergence)
+  divWeakness = input.float(0.92, title: "Divergence weakness factor", min: 0.5, max: 0.99, key: "div_weakness", when: showDivergence)
+  divWaning = input.float(0.93, title: "Divergence waning factor", min: 0.5, max: 0.99, key: "div_waning", when: showDivergence)
+  maxExtremeLagBars = input.int(1, title: "Maximum bars from extreme to impulse end", min: 0, max: 3, key: "max_extreme_lag_bars", description: "Keeps waning pressure causally close to the price extreme.", when: showDivergence)
+  divBullishColor = input.color(color.rgb(79, 201, 190), title: "Bullish divergence", key: "div_bullish_color", when: showDivergence)
+  divBearishColor = input.color(color.rgb(255, 75, 94), title: "Bearish divergence", key: "div_bearish_color", sameLine: true, when: showDivergence)
+  divMarkerSize = input.int(6, title: "Divergence marker size", min: 2, max: 12, key: "div_marker_size", when: showDivergence)
+  enableDivAlerts = input.bool(true, title: "Enable confirmed divergence alerts", key: "enable_div_alerts", when: showDivergence)
+)
+
+setup (
+  activeLookback = preset == "Scalp 1m" ? 120 : (preset == "Custom" ? customAdaptationPeriod : 240)
+  activeSensitivity = preset == "Custom" ? customSensitivity : 100
+  deltaPeriod = preset == "Scalp 1m" ? 10 : (preset == "Scalp 5m" ? 18 : (preset == "Custom" ? customDeltaPeriod : 12))
+  adaptationSpeed = preset == "Scalp 1m" ? 1.20 : (preset == "Custom" ? customAdaptationSpeed : 1.0)
+  colorIntensity = preset == "Scalp 1m" ? 110 : (preset == "Custom" ? customColorIntensity : 100)
+  colorGamma = preset == "Scalp 1m" ? 0.90 : (preset == "Custom" ? customColorGamma : 1.0)
+  neutralExitRatio = preset == "Scalp 1m" ? 0.55 : (preset == "Custom" ? customNeutralExitRatio : 0.65)
+  minImpulseClimax = preset == "Scalp 5m" ? 0.85 : (preset == "Custom" ? customImpulseClimax : 0.75)
+  thresholdMultiplier = 100.0 / (activeSensitivity * 1.0)
+  deltaFloor = math.max(context.stepSize, 0.0000001)
+  activeBearishPeakColor = visualPalette == "Ice & Ember" ? color.rgb(255, 48, 67) : (visualPalette == "Aurora" ? color.rgb(255, 54, 132) : (visualPalette == "Muted Pro" ? color.rgb(222, 92, 101) : bearishPeakColor))
+  activeBearishMidColor = visualPalette == "Ice & Ember" ? color.rgb(102, 20, 31) : (visualPalette == "Aurora" ? color.rgb(100, 24, 68) : (visualPalette == "Muted Pro" ? color.rgb(91, 47, 52) : bearishMidColor))
+  activeNeutralColor = visualPalette == "Ice & Ember" ? color.rgb(112, 118, 128) : (visualPalette == "Aurora" ? color.rgb(108, 108, 128) : (visualPalette == "Muted Pro" ? color.rgb(122, 126, 134) : neutralColor))
+  activeBullishMidColor = visualPalette == "Ice & Ember" ? color.rgb(17, 55, 94) : (visualPalette == "Aurora" ? color.rgb(16, 75, 105) : (visualPalette == "Muted Pro" ? color.rgb(42, 68, 99) : bullishMidColor))
+  activeBullishPeakColor = visualPalette == "Ice & Ember" ? color.rgb(73, 158, 255) : (visualPalette == "Aurora" ? color.rgb(40, 208, 255) : (visualPalette == "Muted Pro" ? color.rgb(101, 151, 211) : bullishPeakColor))
+  pressureScale = color.scale(
+    at: [-100.0, -50.0, 0.0, 50.0, 100.0],
+    colors: [activeBearishPeakColor, activeBearishMidColor, activeNeutralColor, activeBullishMidColor, activeBullishPeakColor],
+    space: colorspace.rgb,
+    easing: easing.smootherstep,
+  )
+  buyRibbonScale = color.scale(
+    at: [0.0, 50.0, 100.0],
+    colors: [color.withAlpha(activeBullishMidColor, 70), activeBullishMidColor, activeBullishPeakColor],
+    space: colorspace.rgb,
+    easing: easing.smootherstep,
+  )
+  sellRibbonScale = color.scale(
+    at: [0.0, 50.0, 100.0],
+    colors: [color.withAlpha(activeBearishMidColor, 70), activeBearishMidColor, activeBearishPeakColor],
+    space: colorspace.rgb,
+    easing: easing.smootherstep,
+  )
+)
+
+data chart = subscribe(data.ohlcv, history: activeLookback + deltaPeriod + 50)
+
+pane pressurePane = pane(title: "Delta pressure", height: 0.16)
+pane cvdPane = pane(title: "Session CVD", height: 0.24)
+
+plot (
+  pressureCandles = plot.candle(title: "Delta pressure candles", showLabel: false, showValue: false)
+  pressureRibbon = plot.histogram(title: "Delta pressure", showLabel: true, showValue: true, on: pressurePane)
+  buyPressureGlow = plot.line(title: "Buy pressure glow", width: 4.5, showLabel: false, showValue: false, on: pressurePane)
+  sellPressureGlow = plot.line(title: "Sell pressure glow", width: 4.5, showLabel: false, showValue: false, on: pressurePane)
+  buyPressureRibbon = plot.line(title: "Buy pressure", width: 1.5, showLabel: true, showValue: true, on: pressurePane)
+  sellPressureRibbon = plot.line(title: "Sell pressure", width: 1.5, showLabel: true, showValue: true, on: pressurePane)
+  pressureZero = plot.line(title: "Pressure zero", color: color.withAlpha(color.silver, 34), width: 1.0, showLabel: false, showValue: false, on: pressurePane)
+  pressureUpperRange = plot.line(title: "Pressure upper range", color: color.withAlpha(color.silver, 8), width: 0.5, style: linestyle.dotted, showLabel: false, showValue: false, on: pressurePane)
+  pressureLowerRange = plot.line(title: "Pressure lower range", color: color.withAlpha(color.silver, 8), width: 0.5, style: linestyle.dotted, showLabel: false, showValue: false, on: pressurePane)
+  volumeBackdrop = plot.histogram(title: "Volume backdrop", color: volumeBackdropColor, showLabel: false, showValue: false, on: cvdPane)
+  cvdGlow = plot.line(title: "CVD glow", width: 5.0, showLabel: false, showValue: false, on: cvdPane)
+  cvdLine = plot.line(title: "Session CVD", width: 1.6, showLabel: true, showValue: true, on: cvdPane)
+  cvdZero = plot.line(title: "CVD zero", color: color.withAlpha(color.silver, 42), width: 1.0, showLabel: false, showValue: false, on: cvdPane)
+  cvdUpperRange = plot.line(title: "CVD upper range", color: color.withAlpha(color.silver, 12), width: 0.5, style: linestyle.dotted, showLabel: false, showValue: false, on: cvdPane)
+  cvdLowerRange = plot.line(title: "CVD lower range", color: color.withAlpha(color.silver, 12), width: 0.5, style: linestyle.dotted, showLabel: false, showValue: false, on: cvdPane)
+)
+
+type Impulse {
+  direction: int
+  extremePrice: float
+  extremeTime: time
+  peakScaled: float
+  meanScaled: float
+  endScaled: float
+  priorPeakScaled: float
+  extremeLagBars: int
+  length: int
+}
+
+type PriceLevel {
+  id: int
+  price: float
+  side: int
+  startTime: time
+  active: bool
+}
+
+type ImpulseAlertPayload {
+  direction: string
+  price: float
+  peakDelta: float
+  bars: int
+}
+
+type DivergenceAlertPayload {
+  direction: string
+  confirmationPrice: float
+  extremePrice: float
+  peakScaled: float
+  meanScaled: float
+  referencePeakScaled: float
+  referenceMeanScaled: float
+  extremeLagBars: int
+  divType: string
+}
+
+alert impulseAlert = alert(
+  title: "Delta pressure impulse extreme",
+  description: "A qualifying pressure impulse ended and its extreme was confirmed.",
+  onClose: true,
+  payload: ImpulseAlertPayload,
+)
+
+alert divergenceAlert = alert(
+  title: "Confirmed delta divergence",
+  description: "Price extended beyond the immediately preceding same-direction impulse while normalized delta peak, mean, and ending pressure weakened.",
+  onClose: true,
+  payload: DivergenceAlertPayload,
+)
+
+state (
+  pressureState: int = 0
+  adaptiveScale = deltaFloor
+  adaptiveEntry = deltaFloor
+  adaptiveExit = deltaFloor * 0.65
+  closedDeltas = rolling<float>(deltaPeriod)
+  closedBuyVolumes = rolling<float>(deltaPeriod)
+  closedSellVolumes = rolling<float>(deltaPeriod)
+  baselineAbs = rolling<float>(activeLookback)
+
+  activeDirection: int = 0
+  activeLength: int = 0
+  activePeak = 0.0
+  activePeakRaw = 0.0
+  activeSum = 0.0
+  activeEndDelta = 0.0
+  activePriorPeak = 0.0
+  activeExtremePrice = 0.0
+  activeExtremeTime: time? = null
+  activeExtremeLag: int = 0
+
+  bullishImpulses = rolling<Impulse>(5)
+  bearishImpulses = rolling<Impulse>(5)
+
+  levels = rolling<PriceLevel>(maxRetainedLevels)
+  levelLines = entities.linePool(max: maxRetainedLevels)
+  eventMarkers = entities.markerPool(max: 480)
+  levelSequence: int = 0
+  eventSequence: int = 0
+
+  sessionDay: time? = null
+  sessionCvd = 0.0
+  sessionPeak = deltaFloor
+  previousRollingDelta = 0.0
+)
+
+fn smoothAdaptive(previous: float, target: float, riseAlpha: float, fallAlpha: float, speed: float) -> float {
+  if previous <= 0.0 {
+    return target
+  }
+  let alpha = target > previous ? riseAlpha * speed : fallAlpha * speed
+  return previous + (target - previous) * math.clamp(alpha, 0.0, 1.0)
+}
+
+fn resolvePressure(previous: int, rollingDelta: float, entry: float, exit: float) -> int {
+  if previous > 0 {
+    if rollingDelta <= -entry {
+      return -1
+    }
+    return rollingDelta >= exit ? 1 : 0
+  }
+  if previous < 0 {
+    if rollingDelta >= entry {
+      return 1
+    }
+    return rollingDelta <= -exit ? -1 : 0
+  }
+  if rollingDelta >= entry {
+    return 1
+  }
+  if rollingDelta <= -entry {
+    return -1
+  }
+  return 0
+}
+
+on chart.update {
+  if chart.isLast {
+    eventMarkers.delete("developing", "divergence-glow")
+    eventMarkers.delete("developing", "divergence-core")
+  }
+
+  let formingBuy = chart.forming.buyVolume
+  let formingSell = chart.forming.sellVolume
+  // sumLast rejects requests larger than the number of buffered values.
+  // During warm-up, sum only the closed deltas that actually exist.
+  let availableClosed = math.min(deltaPeriod - 1, closedDeltas.len)
+  let confirmedRolling = closedDeltas.sumLast(availableClosed)
+  let confirmedRollingBuy = closedBuyVolumes.sumLast(availableClosed)
+  let confirmedRollingSell = closedSellVolumes.sumLast(availableClosed)
+  let open = chart.forming.open
+  let high = chart.forming.high
+  let low = chart.forming.low
+  let close = chart.forming.close
+  let currentTime = chart.forming.time
+
+  if chart.isLast && formingBuy != null && formingSell != null && open != null && high != null && low != null && close != null && currentTime != null {
+    let delta = formingBuy - formingSell
+    let rollingDelta = confirmedRolling + delta
+    let rollingBuy = confirmedRollingBuy + formingBuy
+    let rollingSell = confirmedRollingSell + formingSell
+    let rollingGross = rollingBuy + rollingSell
+    let ready = baselineAbs.isFull
+    let liveState = ready ? resolvePressure(pressureState, rollingDelta, adaptiveEntry, adaptiveExit) : 0
+    let scaled = math.clamp(rollingDelta * 100.0 / math.max(deltaFloor, adaptiveScale), -10000.0, 10000.0)
+    let amplified = scaled * colorIntensity / 100.0
+    let shapedMagnitude = math.pow(math.abs(amplified) / 100.0, colorGamma) ?? 0.0
+    let shaped = math.sign(amplified) * shapedMagnitude * 100.0
+    let displayShaped = ready ? shaped : 0.0
+    let rawVisualMagnitude = math.abs(displayShaped)
+    let pressureSoftSpan = math.max(1.0, pressureSoftCap - 100.0)
+    let pressureOverflow = math.max(0.0, rawVisualMagnitude - 100.0)
+    let expandedPressureMagnitude = rawVisualMagnitude <= 100.0 ? rawVisualMagnitude : 100.0 + pressureOverflow / (1.0 + pressureOverflow / pressureSoftSpan)
+    let visualPressure = math.sign(displayShaped) * expandedPressureMagnitude
+    let pressureAxisRange = math.max(pressureVisibleRange, pressureSoftCap + 20) * 1.0
+    let visualMagnitude = math.clamp(rawVisualMagnitude / 100.0, 0.0, 1.0)
+    let alphaCurve = math.pow(visualMagnitude, 0.72) ?? 0.0
+    let gradedAlpha = int(math.round(weakPressureOpacity + (strongPressureOpacity - weakPressureOpacity) * alphaCurve, 0)) ?? strongPressureOpacity
+    let pressureAlpha = liveState == 0 ? neutralPressureOpacity : gradedAlpha
+    let basePressureColor = liveState == 0 ? activeNeutralColor : pressureScale.sample(visualPressure)
+    let candleColor = color.withAlpha(basePressureColor, pressureAlpha)
+    let candleWickColor = color.withAlpha(basePressureColor, math.min(255, pressureAlpha + 18))
+    // Dual ribbon is a display decomposition of the same rolling buy/sell
+    // volume window used to form delta. The two traces sum to 100 and cross
+    // at balanced pressure; they do not alter impulse or divergence state.
+    let buyPressureShare = rollingGross > 0.0 ? rollingBuy / rollingGross * 100.0 : 50.0
+    let sellPressureShare = rollingGross > 0.0 ? rollingSell / rollingGross * 100.0 : 50.0
+    let buyRibbonCurve = math.pow(buyPressureShare / 100.0, 0.72) ?? 0.0
+    let sellRibbonCurve = math.pow(sellPressureShare / 100.0, 0.72) ?? 0.0
+    let buyRibbonAlpha = int(math.round(weakPressureOpacity + (strongPressureOpacity - weakPressureOpacity) * buyRibbonCurve, 0)) ?? strongPressureOpacity
+    let sellRibbonAlpha = int(math.round(weakPressureOpacity + (strongPressureOpacity - weakPressureOpacity) * sellRibbonCurve, 0)) ?? strongPressureOpacity
+    let buyGlowAlpha = int(math.round(10.0 + 28.0 * buyRibbonCurve, 0)) ?? 24
+    let sellGlowAlpha = int(math.round(10.0 + 28.0 * sellRibbonCurve, 0)) ?? 24
+    let buyRibbonColor = buyRibbonScale.sample(buyPressureShare)
+    let sellRibbonColor = sellRibbonScale.sample(sellPressureShare)
+    let dualRibbonVisible = showPressureRibbon && pressureVisualMode == "Dual ribbon" && ready
+    let histogramVisible = showPressureRibbon && pressureVisualMode == "Histogram"
+
+    pressureCandles.plot(
+      showCandles ? open : null,
+      showCandles ? high : null,
+      showCandles ? low : null,
+      showCandles ? close : null,
+      bodyColor: candleColor,
+      wickColor: candleWickColor,
+      borderColor: candleColor,
+    )
+    pressureRibbon.plot(histogramVisible ? visualPressure : null, color: candleWickColor)
+    buyPressureGlow.plot(dualRibbonVisible ? buyPressureShare : null, color: color.withAlpha(buyRibbonColor, buyGlowAlpha))
+    sellPressureGlow.plot(dualRibbonVisible ? sellPressureShare : null, color: color.withAlpha(sellRibbonColor, sellGlowAlpha))
+    buyPressureRibbon.plot(dualRibbonVisible ? buyPressureShare : null, color: color.withAlpha(buyRibbonColor, buyRibbonAlpha))
+    sellPressureRibbon.plot(dualRibbonVisible ? sellPressureShare : null, color: color.withAlpha(sellRibbonColor, sellRibbonAlpha))
+    pressureZero.plot(histogramVisible ? 0.0 : null)
+    pressureUpperRange.plot(showPressureRibbon ? (histogramVisible ? pressureAxisRange : 100.0) : null)
+    pressureLowerRange.plot(showPressureRibbon ? (histogramVisible ? pressureAxisRange * -1.0 : 0.0) : null)
+
+    if showWickLevels {
+      for level in levels {
+        if level.active {
+          levelLines.get(level.id).set(
+            level.startTime, level.price, currentTime, level.price,
+            width: wickLevelWidth * 1.0,
+            color: wickLevelColor,
+            style: linestyle.solid,
+            zIndex: 2,
+          )
+        }
+      }
+    }
+
+    let formingDay = time.dayStart(currentTime)
+    let isNewSession = sessionDay == null || formingDay != sessionDay
+    let liveCvd = isNewSession ? delta : sessionCvd + delta
+    // Normalize against the prior confirmed session peak. New extremes can
+    // therefore travel beyond +/-100 instead of repeatedly flattening there.
+    let livePriorPeak = isNewSession ? math.max(deltaFloor, math.abs(liveCvd)) : math.max(deltaFloor, sessionPeak)
+    let livePeak = isNewSession ? math.max(deltaFloor, math.abs(liveCvd)) : math.max(sessionPeak, math.abs(liveCvd))
+    let expandedCvd = math.clamp(liveCvd / livePriorPeak * 100.0, cvdExpansionCap * -1.0, cvdExpansionCap * 1.0)
+    let cvdAxisRange = math.max(cvdVisibleRange, cvdExpansionCap + 25) * 1.0
+    let cvdValue = scaleCvdPerSession ? expandedCvd : liveCvd
+    let paneScale = scaleCvdPerSession ? cvdAxisRange : livePeak
+    let confirmedMaxVolume = ta.highest(chart.volume, activeLookback) ?? 0.0
+    let formingVolume = chart.forming.volume ?? 0.0
+    let maxVolume = math.max(confirmedMaxVolume, formingVolume)
+    let scaledVolume = maxVolume > 0.0 ? formingVolume / maxVolume * paneScale : 0.0
+    let cvdColor = cvdValue >= 0.0 ? cvdPositiveColor : cvdNegativeColor
+    if cvdAdaptiveColors {
+      let cvdColorScale = scaleCvdPerSession ? cvdExpansionCap * 1.0 : livePeak
+      cvdColor = pressureScale.sample(math.clamp(cvdValue / math.max(deltaFloor, cvdColorScale) * 100.0, -100.0, 100.0))
+    }
+
+    let cvdMagnitudeScale = scaleCvdPerSession ? cvdExpansionCap * 1.0 : livePeak
+    let cvdVisualMagnitude = math.clamp(math.abs(cvdValue) / math.max(deltaFloor, cvdMagnitudeScale), 0.0, 1.0)
+    let cvdCoreAlpha = int(math.round(145.0 + cvdVisualMagnitude * 110.0, 0)) ?? 255
+    let cvdCoreColor = color.withAlpha(cvdColor, cvdCoreAlpha)
+    let cvdGlowColor = color.withAlpha(cvdColor, cvdGlowOpacity)
+
+    volumeBackdrop.plot(showCvd && showVolumeBackdrop ? scaledVolume : null)
+    cvdGlow.plot(showCvd ? cvdValue : null, color: cvdGlowColor)
+    cvdLine.plot(showCvd ? cvdValue : null, color: cvdCoreColor)
+    cvdZero.plot(showCvd ? 0.0 : null)
+    cvdUpperRange.plot(showCvd && scaleCvdPerSession ? cvdAxisRange : null)
+    cvdLowerRange.plot(showCvd && scaleCvdPerSession ? cvdAxisRange * -1.0 : null)
+
+    // Developing divergence is a disposable preview only. It uses the fully
+    // closed impulse statistics and appears only while the forming bar is
+    // transitioning out of that impulse. It never mutates history or alerts.
+    if showDivergence && showDevelopingDivergence && chart.isLast && activeDirection != 0 && liveState != activeDirection && activeLength >= minImpulseBars {
+      let reference = activeDirection > 0 ? bullishImpulses.last() : bearishImpulses.last()
+      if reference != null {
+        let previewMean = activeSum / math.max(1.0, activeLength * 1.0)
+        let priceExtended = activeDirection > 0 ? activeExtremePrice > reference.extremePrice : activeExtremePrice < reference.extremePrice
+        let deltaWeakened = activePeak < reference.peakScaled * divWeakness && previewMean < reference.meanScaled * divWeakness
+        let waning = activeLength >= 2 && activePriorPeak > 0.0 && activeEndDelta < activePriorPeak * divWaning
+        let extremeNearEnd = activeExtremeLag <= maxExtremeLagBars
+        let previewOk = activePeak >= minImpulseClimax && priceExtended && deltaWeakened && waning && extremeNearEnd
+        if previewOk {
+          let previewColor = activeDirection > 0 ? divBearishColor : divBullishColor
+          eventMarkers.get("developing", "divergence-glow").set(
+            currentTime, close,
+            shape: shape.diamond,
+            color: color.withAlpha(previewColor, 34),
+            size: divMarkerSize * 1.85,
+            zIndex: 4,
+          )
+          eventMarkers.get("developing", "divergence-core").set(
+            currentTime, close,
+            shape: shape.diamond,
+            color: color.withAlpha(previewColor, 145),
+            size: divMarkerSize * 0.82,
+            zIndex: 5,
+          )
+        }
+      }
+    }
+  }
+}
+
+on chart.close {
+  let delta = chart.delta()
+  let buyVolume = chart.buyVolume
+  let sellVolume = chart.sellVolume
+  let open = chart.open
+  let high = chart.high
+  let low = chart.low
+  let close = chart.close
+  let barTime = chart.time
+
+  if delta != null && buyVolume != null && sellVolume != null && open != null && high != null && low != null && close != null && barTime != null {
+    let availableClosed = math.min(deltaPeriod - 1, closedDeltas.len)
+    let rollingDelta = closedDeltas.sumLast(availableClosed) + delta
+    let rollingBuy = closedBuyVolumes.sumLast(availableClosed) + buyVolume
+    let rollingSell = closedSellVolumes.sumLast(availableClosed) + sellVolume
+    let rollingGross = rollingBuy + rollingSell
+    let absoluteRolling = math.abs(rollingDelta)
+    let scaleTarget = math.max(deltaFloor, absoluteRolling) * thresholdMultiplier
+    let entryTarget = math.max(0.0000001, scaleTarget * 0.55)
+    let exitTarget = entryTarget * 0.55
+
+    // A 64-bin causal histogram approximates the v2 percentile and Otsu gates
+    // without sorting the entire adaptation window on every chart update.
+    if baselineAbs.len >= 20 {
+      let bins = int[](64)
+      for b in 0..64 {
+        bins.push(0)
+      }
+      let sampleMax = math.max(deltaFloor, baselineAbs.max() ?? deltaFloor)
+      for sample in baselineAbs {
+        let rawBin = int(math.floor(sample / sampleMax * 63.0)) ?? 0
+        let bin = math.clamp(rawBin, 0, 63)
+        bins.set(bin, (bins[bin] ?? 0) + 1)
+      }
+
+      let cumulative: int = 0
+      let p45 = sampleMax
+      let p68 = sampleMax
+      let p88 = sampleMax
+      let p92 = sampleMax
+      let found45 = false
+      let found68 = false
+      let found88 = false
+      let found92 = false
+      let weightedTotal = 0.0
+      for b in 0..64 {
+        let count = bins[b] ?? 0
+        let value = sampleMax * ((b + 1) * 1.0) / 64.0
+        weightedTotal += value * (count * 1.0)
+        cumulative += count
+        if !found45 && cumulative * 100 >= baselineAbs.len * 45 {
+          p45 = value
+          found45 = true
+        }
+        if !found68 && cumulative * 100 >= baselineAbs.len * 68 {
+          p68 = value
+          found68 = true
+        }
+        if !found88 && cumulative * 100 >= baselineAbs.len * 88 {
+          p88 = value
+          found88 = true
+        }
+        if !found92 && cumulative * 100 >= baselineAbs.len * 92 {
+          p92 = value
+          found92 = true
+        }
+      }
+
+      let leftCount: int = 0
+      let leftSum = 0.0
+      let bestScore = -1.0
+      let naturalSplit = p68
+      for b in 0..64 {
+        let count = bins[b] ?? 0
+        let value = sampleMax * ((b + 1) * 1.0) / 64.0
+        leftCount += count
+        leftSum += value * (count * 1.0)
+        let rightCount = baselineAbs.len - leftCount
+        if leftCount > 0 && rightCount > 0 {
+          let leftMean = leftSum / (leftCount * 1.0)
+          let rightMean = (weightedTotal - leftSum) / (rightCount * 1.0)
+          let difference = leftMean - rightMean
+          let score = (leftCount * 1.0) * (rightCount * 1.0) * difference * difference
+          if score > bestScore {
+            bestScore = score
+            naturalSplit = value
+          }
+        }
+      }
+
+      scaleTarget = math.max(deltaFloor, p92) * thresholdMultiplier
+      let rawEntry = math.max(p68, math.min(p88, naturalSplit))
+      entryTarget = math.max(0.0000001, rawEntry * thresholdMultiplier)
+      let rawExit = math.min(rawEntry, math.max(p45, rawEntry * neutralExitRatio))
+      exitTarget = math.max(0.0000001, rawExit * thresholdMultiplier)
+    }
+
+    let speed = math.clamp((240.0 / (activeLookback * 1.0)) * adaptationSpeed, 0.5, 2.0)
+    let nextScale = math.max(deltaFloor, smoothAdaptive(adaptiveScale, scaleTarget, 0.12, 0.025, speed))
+    let nextEntry = math.max(0.0000001, smoothAdaptive(adaptiveEntry, entryTarget, 0.10, 0.03, speed))
+    let nextExit = math.min(nextEntry, math.max(0.0000001, smoothAdaptive(adaptiveExit, exitTarget, 0.10, 0.03, speed)))
+    let ready = baselineAbs.isFull
+    let nextState = ready ? resolvePressure(pressureState, rollingDelta, nextEntry, nextExit) : 0
+    let normalizedPressure = absoluteRolling / math.max(deltaFloor, nextScale)
+
+    // Close and evaluate the previous impulse before recording it as a baseline.
+    let completedExtremeTime = activeExtremeTime
+    if activeDirection != 0 && nextState != activeDirection && activeLength >= minImpulseBars && completedExtremeTime != null {
+      let peakScaled = activePeak
+      let meanScaled = activeSum / math.max(1.0, activeLength * 1.0)
+      let climaxOk = peakScaled >= minImpulseClimax
+      let waning = activeLength >= 2 && activePriorPeak > 0.0 && activeEndDelta < activePriorPeak * divWaning
+      let extremeNearEnd = activeExtremeLag <= maxExtremeLagBars
+      let reference = activeDirection > 0 ? bullishImpulses.last() : bearishImpulses.last()
+
+      // Compare every dimension with one coherent prior same-direction
+      // impulse. Independent maxima across different legs create a synthetic
+      // reference that never existed in the market.
+      if reference != null {
+        let priceExtended = activeDirection > 0 ? activeExtremePrice > reference.extremePrice : activeExtremePrice < reference.extremePrice
+        let deltaWeakened = peakScaled < reference.peakScaled * divWeakness && meanScaled < reference.meanScaled * divWeakness
+        let divergence = showDivergence && climaxOk && priceExtended && deltaWeakened && waning && extremeNearEnd
+
+        if divergence {
+          eventSequence += 1
+          let markerColor = activeDirection > 0 ? divBearishColor : divBullishColor
+          // The marker is placed at the confirmation bar and price. The
+          // earlier extreme remains in the alert payload, avoiding a
+          // hindsight-backdated signal on historical charts.
+          eventMarkers.get(eventSequence, "divergence-glow").set(
+            barTime, close,
+            shape: shape.diamond,
+            color: color.withAlpha(markerColor, 52),
+            size: divMarkerSize * 1.9,
+            zIndex: 5,
+          )
+          eventMarkers.get(eventSequence, "divergence-core").set(
+            barTime, close,
+            shape: shape.diamond,
+            color: markerColor,
+            size: divMarkerSize * 1.0,
+            zIndex: 6,
+          )
+          if enableDivAlerts {
+            divergenceAlert.trigger(DivergenceAlertPayload {
+              direction: activeDirection > 0 ? "Bearish" : "Bullish",
+              confirmationPrice: close,
+              extremePrice: activeExtremePrice,
+              peakScaled: math.round(peakScaled, 2),
+              meanScaled: math.round(meanScaled, 2),
+              referencePeakScaled: math.round(reference.peakScaled, 2),
+              referenceMeanScaled: math.round(reference.meanScaled, 2),
+              extremeLagBars: activeExtremeLag,
+              divType: activeDirection > 0 ? "top" : "bottom",
+            })
+          }
+        }
+      }
+
+      let completed = Impulse {
+        direction: activeDirection,
+        extremePrice: activeExtremePrice,
+        extremeTime: completedExtremeTime,
+        peakScaled: peakScaled,
+        meanScaled: meanScaled,
+        endScaled: activeEndDelta,
+        priorPeakScaled: activePriorPeak,
+        extremeLagBars: activeExtremeLag,
+        length: activeLength,
+      }
+      if climaxOk {
+        if activeDirection > 0 {
+          bullishImpulses.push(completed)
+        } else {
+          bearishImpulses.push(completed)
+        }
+      }
+
+      let movedAway = activeDirection > 0 ? high < activeExtremePrice : low > activeExtremePrice
+      if showWickLevels && climaxOk && movedAway {
+        let duplicate = false
+        for level in levels {
+          if level.active && math.abs(level.price - activeExtremePrice) <= math.max(context.tickSize, 0.0000001) {
+            duplicate = true
+          }
+        }
+        if !duplicate {
+          levelSequence += 1
+          levels.push(PriceLevel {
+            id: levelSequence,
+            price: activeExtremePrice,
+            side: activeDirection > 0 ? 1 : -1,
+            startTime: completedExtremeTime,
+            active: true,
+          })
+          levelLines.get(levelSequence).set(
+            completedExtremeTime, activeExtremePrice, barTime, activeExtremePrice,
+            width: wickLevelWidth * 1.0,
+            color: wickLevelColor,
+            style: linestyle.solid,
+            zIndex: 2,
+          )
+        }
+      }
+
+      if enableImpulseAlerts && climaxOk {
+        impulseAlert.trigger(ImpulseAlertPayload {
+          direction: activeDirection > 0 ? "Bullish" : "Bearish",
+          price: activeExtremePrice,
+          peakDelta: activePeakRaw,
+          bars: activeLength,
+        })
+      }
+    }
+
+    // Update or initialize the currently active pressure impulse.
+    if nextState == 0 {
+      activeDirection = 0
+      activeLength = 0
+      activePeak = 0.0
+      activePeakRaw = 0.0
+      activeSum = 0.0
+      activeEndDelta = 0.0
+      activePriorPeak = 0.0
+      activeExtremePrice = 0.0
+      activeExtremeTime = null
+      activeExtremeLag = 0
+    } else if nextState != activeDirection {
+      activeDirection = nextState
+      activeLength = 1
+      activePeak = normalizedPressure
+      activePeakRaw = absoluteRolling
+      activeSum = normalizedPressure
+      activeEndDelta = normalizedPressure
+      activePriorPeak = 0.0
+      activeExtremePrice = nextState > 0 ? high : low
+      activeExtremeTime = barTime
+      activeExtremeLag = 0
+    } else {
+      activeLength += 1
+      activePriorPeak = activePeak
+      activePeak = math.max(activePeak, normalizedPressure)
+      activePeakRaw = math.max(activePeakRaw, absoluteRolling)
+      activeSum += normalizedPressure
+      activeEndDelta = normalizedPressure
+      let makesExtreme = nextState > 0 ? high >= activeExtremePrice : low <= activeExtremePrice
+      if makesExtreme {
+        activeExtremePrice = nextState > 0 ? high : low
+        activeExtremeTime = barTime
+        activeExtremeLag = 0
+      } else {
+        activeExtremeLag += 1
+      }
+    }
+
+    // Confirm touches and freeze each level at its first subsequent touched bar.
+    if showWickLevels {
+      for i in 0..levels.len {
+        let level = levels[i]
+        if level != null && level.active {
+          let touched = level.side > 0 ? high >= level.price : low <= level.price
+          if touched && barTime > level.startTime {
+            levelLines.get(level.id).set(
+              level.startTime, level.price, barTime, level.price,
+              width: wickLevelWidth * 1.0,
+              color: wickLevelColor,
+              style: linestyle.solid,
+              zIndex: 2,
+            )
+            levels.set(i, PriceLevel {
+              id: level.id,
+              price: level.price,
+              side: level.side,
+              startTime: level.startTime,
+              active: false,
+            })
+          }
+        }
+      }
+    }
+
+    // Optional neutral pivot levels use two left bars and one confirmed right bar.
+    if showWickLevels && includeNeutralLevels && pressureState == 0 && chart.index >= 3 {
+      let candidateOpen = chart.open[1]
+      let candidateHigh = chart.high[1]
+      let candidateLow = chart.low[1]
+      let candidateClose = chart.close[1]
+      let leftHigh1 = chart.high[2]
+      let leftHigh2 = chart.high[3]
+      let leftLow1 = chart.low[2]
+      let leftLow2 = chart.low[3]
+      let medianRange = ta.median(chart.range(), 50) ?? math.max(context.tickSize, high - low)
+
+      if candidateOpen != null && candidateHigh != null && candidateLow != null && candidateClose != null && leftHigh1 != null && leftHigh2 != null && leftLow1 != null && leftLow2 != null {
+        let candidateRange = math.max(context.tickSize, candidateHigh - candidateLow)
+        let bodyHigh = math.max(candidateOpen, candidateClose)
+        let bodyLow = math.min(candidateOpen, candidateClose)
+        let rangeStrength = candidateRange / math.max(context.tickSize, medianRange)
+        let deltaStrength = math.abs(previousRollingDelta) / math.max(0.0000001, adaptiveEntry)
+        let highPivot = candidateHigh > leftHigh1 && candidateHigh > leftHigh2 && high < candidateHigh
+        let lowPivot = candidateLow < leftLow1 && candidateLow < leftLow2 && low > candidateLow
+        let highWick = (candidateHigh - bodyHigh) / candidateRange
+        let lowWick = (bodyLow - candidateLow) / candidateRange
+        let highDisplacement = (candidateHigh - high) / math.max(context.tickSize, medianRange)
+        let lowDisplacement = (low - candidateLow) / math.max(context.tickSize, medianRange)
+        let highSignificance: int = 0
+        let lowSignificance: int = 0
+        if deltaStrength >= 0.75 {
+          highSignificance += 1
+          lowSignificance += 1
+        }
+        if highDisplacement >= 0.40 {
+          highSignificance += 1
+        }
+        if lowDisplacement >= 0.40 {
+          lowSignificance += 1
+        }
+        if highWick >= 0.28 && rangeStrength >= 0.65 {
+          highSignificance += 1
+        }
+        if lowWick >= 0.28 && rangeStrength >= 0.65 {
+          lowSignificance += 1
+        }
+
+        let neutralPrice = highPivot && highSignificance >= 2 ? candidateHigh : (lowPivot && lowSignificance >= 2 ? candidateLow : null)
+        let neutralSide = highPivot && highSignificance >= 2 ? 1 : (lowPivot && lowSignificance >= 2 ? -1 : 0)
+        let candidateTime = chart.time[1]
+        if neutralPrice != null && neutralSide != 0 && candidateTime != null {
+          let duplicate = false
+          for level in levels {
+            if level.active && math.abs(level.price - neutralPrice) <= math.max(context.tickSize, 0.0000001) {
+              duplicate = true
+            }
+          }
+          if !duplicate {
+            levelSequence += 1
+            levels.push(PriceLevel {
+              id: levelSequence,
+              price: neutralPrice,
+              side: neutralSide,
+              startTime: candidateTime,
+              active: true,
+            })
+            levelLines.get(levelSequence).set(
+              candidateTime, neutralPrice, barTime, neutralPrice,
+              width: wickLevelWidth * 1.0,
+              color: wickLevelColor,
+              style: linestyle.solid,
+              zIndex: 2,
+            )
+          }
+        }
+      }
+    }
+
+    let day = time.dayStart(barTime)
+    let newSession = sessionDay == null || day != sessionDay
+    let nextSessionCvd = newSession ? delta : sessionCvd + delta
+    let priorSessionPeak = newSession ? math.max(deltaFloor, math.abs(nextSessionCvd)) : math.max(deltaFloor, sessionPeak)
+    let nextSessionPeak = newSession ? math.max(deltaFloor, math.abs(nextSessionCvd)) : math.max(sessionPeak, math.abs(nextSessionCvd))
+    sessionCvd = nextSessionCvd
+    sessionPeak = nextSessionPeak
+    sessionDay = day
+
+    // Confirmed plots are written from the close handler so historical replay
+    // and the settled live chart share the same state. The update handler only
+    // paints the current forming candle and disposable preview.
+    let confirmedScaled = math.clamp(rollingDelta * 100.0 / math.max(deltaFloor, nextScale), -10000.0, 10000.0)
+    let confirmedAmplified = confirmedScaled * colorIntensity / 100.0
+    let confirmedMagnitude = math.pow(math.abs(confirmedAmplified) / 100.0, colorGamma) ?? 0.0
+    let confirmedShaped = math.sign(confirmedAmplified) * confirmedMagnitude * 100.0
+    let confirmedDisplayShaped = ready ? confirmedShaped : 0.0
+    let confirmedRawMagnitude = math.abs(confirmedDisplayShaped)
+    let confirmedSoftSpan = math.max(1.0, pressureSoftCap - 100.0)
+    let confirmedOverflow = math.max(0.0, confirmedRawMagnitude - 100.0)
+    let confirmedExpandedMagnitude = confirmedRawMagnitude <= 100.0 ? confirmedRawMagnitude : 100.0 + confirmedOverflow / (1.0 + confirmedOverflow / confirmedSoftSpan)
+    let confirmedVisualPressure = math.sign(confirmedDisplayShaped) * confirmedExpandedMagnitude
+    let confirmedPressureAxisRange = math.max(pressureVisibleRange, pressureSoftCap + 20) * 1.0
+    let confirmedVisualMagnitude = math.clamp(confirmedRawMagnitude / 100.0, 0.0, 1.0)
+    let confirmedAlphaCurve = math.pow(confirmedVisualMagnitude, 0.72) ?? 0.0
+    let confirmedGradedAlpha = int(math.round(weakPressureOpacity + (strongPressureOpacity - weakPressureOpacity) * confirmedAlphaCurve, 0)) ?? strongPressureOpacity
+    let confirmedPressureAlpha = nextState == 0 ? neutralPressureOpacity : confirmedGradedAlpha
+    let confirmedBaseColor = nextState == 0 ? activeNeutralColor : pressureScale.sample(confirmedVisualPressure)
+    let confirmedCandleColor = color.withAlpha(confirmedBaseColor, confirmedPressureAlpha)
+    let confirmedWickColor = color.withAlpha(confirmedBaseColor, math.min(255, confirmedPressureAlpha + 18))
+    let confirmedBuyShare = rollingGross > 0.0 ? rollingBuy / rollingGross * 100.0 : 50.0
+    let confirmedSellShare = rollingGross > 0.0 ? rollingSell / rollingGross * 100.0 : 50.0
+    let confirmedBuyCurve = math.pow(confirmedBuyShare / 100.0, 0.72) ?? 0.0
+    let confirmedSellCurve = math.pow(confirmedSellShare / 100.0, 0.72) ?? 0.0
+    let confirmedBuyAlpha = int(math.round(weakPressureOpacity + (strongPressureOpacity - weakPressureOpacity) * confirmedBuyCurve, 0)) ?? strongPressureOpacity
+    let confirmedSellAlpha = int(math.round(weakPressureOpacity + (strongPressureOpacity - weakPressureOpacity) * confirmedSellCurve, 0)) ?? strongPressureOpacity
+    let confirmedBuyGlowAlpha = int(math.round(10.0 + 28.0 * confirmedBuyCurve, 0)) ?? 24
+    let confirmedSellGlowAlpha = int(math.round(10.0 + 28.0 * confirmedSellCurve, 0)) ?? 24
+    let confirmedBuyRibbonColor = buyRibbonScale.sample(confirmedBuyShare)
+    let confirmedSellRibbonColor = sellRibbonScale.sample(confirmedSellShare)
+    let confirmedDualVisible = showPressureRibbon && pressureVisualMode == "Dual ribbon" && ready
+    let confirmedHistogramVisible = showPressureRibbon && pressureVisualMode == "Histogram"
+    pressureCandles.plot(
+      showCandles ? open : null,
+      showCandles ? high : null,
+      showCandles ? low : null,
+      showCandles ? close : null,
+      bodyColor: confirmedCandleColor,
+      wickColor: confirmedWickColor,
+      borderColor: confirmedCandleColor,
+    )
+    pressureRibbon.plot(confirmedHistogramVisible ? confirmedVisualPressure : null, color: confirmedWickColor)
+    buyPressureGlow.plot(confirmedDualVisible ? confirmedBuyShare : null, color: color.withAlpha(confirmedBuyRibbonColor, confirmedBuyGlowAlpha))
+    sellPressureGlow.plot(confirmedDualVisible ? confirmedSellShare : null, color: color.withAlpha(confirmedSellRibbonColor, confirmedSellGlowAlpha))
+    buyPressureRibbon.plot(confirmedDualVisible ? confirmedBuyShare : null, color: color.withAlpha(confirmedBuyRibbonColor, confirmedBuyAlpha))
+    sellPressureRibbon.plot(confirmedDualVisible ? confirmedSellShare : null, color: color.withAlpha(confirmedSellRibbonColor, confirmedSellAlpha))
+    pressureZero.plot(confirmedHistogramVisible ? 0.0 : null)
+    pressureUpperRange.plot(showPressureRibbon ? (confirmedHistogramVisible ? confirmedPressureAxisRange : 100.0) : null)
+    pressureLowerRange.plot(showPressureRibbon ? (confirmedHistogramVisible ? confirmedPressureAxisRange * -1.0 : 0.0) : null)
+
+    let confirmedExpandedCvd = math.clamp(sessionCvd / priorSessionPeak * 100.0, cvdExpansionCap * -1.0, cvdExpansionCap * 1.0)
+    let confirmedAxisRange = math.max(cvdVisibleRange, cvdExpansionCap + 25) * 1.0
+    let confirmedCvdValue = scaleCvdPerSession ? confirmedExpandedCvd : sessionCvd
+    let confirmedPaneScale = scaleCvdPerSession ? confirmedAxisRange : sessionPeak
+    let currentVolume = chart.volume ?? 0.0
+    let confirmedMaxVolume = ta.highest(chart.volume, activeLookback) ?? currentVolume
+    let confirmedVolume = confirmedMaxVolume > 0.0 ? currentVolume / confirmedMaxVolume * confirmedPaneScale : 0.0
+    let confirmedCvdColor = confirmedCvdValue >= 0.0 ? cvdPositiveColor : cvdNegativeColor
+    if cvdAdaptiveColors {
+      let confirmedCvdColorScale = scaleCvdPerSession ? cvdExpansionCap * 1.0 : sessionPeak
+      confirmedCvdColor = pressureScale.sample(math.clamp(confirmedCvdValue / math.max(deltaFloor, confirmedCvdColorScale) * 100.0, -100.0, 100.0))
+    }
+    let confirmedCvdMagnitudeScale = scaleCvdPerSession ? cvdExpansionCap * 1.0 : sessionPeak
+    let confirmedCvdMagnitude = math.clamp(math.abs(confirmedCvdValue) / math.max(deltaFloor, confirmedCvdMagnitudeScale), 0.0, 1.0)
+    let confirmedCvdAlpha = int(math.round(145.0 + confirmedCvdMagnitude * 110.0, 0)) ?? 255
+    let confirmedCvdCoreColor = color.withAlpha(confirmedCvdColor, confirmedCvdAlpha)
+    let confirmedCvdGlowColor = color.withAlpha(confirmedCvdColor, cvdGlowOpacity)
+    volumeBackdrop.plot(showCvd && showVolumeBackdrop ? confirmedVolume : null)
+    cvdGlow.plot(showCvd ? confirmedCvdValue : null, color: confirmedCvdGlowColor)
+    cvdLine.plot(showCvd ? confirmedCvdValue : null, color: confirmedCvdCoreColor)
+    cvdZero.plot(showCvd ? 0.0 : null)
+    cvdUpperRange.plot(showCvd && scaleCvdPerSession ? confirmedAxisRange : null)
+    cvdLowerRange.plot(showCvd && scaleCvdPerSession ? confirmedAxisRange * -1.0 : null)
+
+    previousRollingDelta = rollingDelta
+    pressureState = nextState
+    adaptiveScale = nextScale
+    adaptiveEntry = nextEntry
+    adaptiveExit = nextExit
+    closedDeltas.push(delta)
+    closedBuyVolumes.push(buyVolume)
+    closedSellVolumes.push(sellVolume)
+    if closedDeltas.isFull {
+      baselineAbs.push(absoluteRolling)
+    }
+  }
+}
