@@ -258,3 +258,58 @@ The durable lesson is that cross-venue perp funding capture is not riskless arbi
 The reported 3–6% months and later giveback are too underspecified to become a finding. It is unknown which venues and contracts were used for the failed implementation, whether PnL included points, how funding was predicted, how positions were sized, which period was tested, and whether fees, financing, slippage, liquidations, and transfers were fully marked.
 
 `REJ-002` preserves the scoped failure of a naive standalone perp–perp implementation and its reopening conditions. It is linked to `OQ-001` because cross-venue transfer and executability depend on venue-specific clocks, data, fees, and liquidity. Dirty-carry and spot–perp claims remain in the ledger only; no finding or active strategy node was created.
+
+## KI-20260914-001 — Polish Quant Momo Engine methodology and claims
+
+- Status: held
+- Captured: 2026-09-14
+- Source: [Polish Quant Momo Engine thread on X](https://x.com/PolishQuant/status/2098142886369882467?s=20)
+- Source date: 2026-09-11
+- Classification: source teaching, indicator description, methodology claim, hypothesis, source-reported measured evidence
+- Topics: momentum, order flow, feature redundancy, horizon signing, rank IC, walk-forward validation, compression, exhaustion, MMT v3
+- Confidence: high that the visible two-post thread and attached chart contain the paraphrased claims; formulas, code, test design, results, and cross-market transfer are independently unverified
+- Supersedes: none
+- Related entries: KI-20260913-002, KI-20260913-004, KI-20260913-005
+- Graph nodes: IND-006 (source-inspired implementation only; evidence status remains held)
+
+### Supplied information
+
+The user asked EdgeLab to inspect the supplied X post. Polish Quant presents the free MMT v3 `Momo Engine` as a composite research/trading display intended to combine momentum, order flow, compression, and exhaustion across timeframes. The visible continuation post describes the author's feature-screening process and its claimed out-of-sample result.
+
+### Source teachings and claims
+
+- **Composite momentum score:** The lower pane is described as a score scaled to approximately ±20, blending volatility-scaled momentum from three horizons with an order-flow input. Price candles reuse the score's directional colour.
+- **Compression gate:** A squeeze or coil state dims the score and shades the pane, signaling that the directional read should receive less weight until range expansion.
+- **Exhaustion markers:** Yellow and teal triangles mark one capitulation-low or blow-off-high event per extreme. The exact extreme, reset, and confirmation rules are not disclosed.
+- **Tape summary:** A live card combines aggressor activity relative to its own baseline with net buy/sell pressure, then maps them to labels such as dormant, balanced, accumulating, distributing, aggressive, or climax.
+- **Suggested interpretation:** Rising score through zero plus aligned candle colour and aggressive participation is presented as continuation confluence; a stretched score plus a turn marker is presented as a tiring move; a coil state is presented as a reason to avoid acting.
+- **Feature screening:** The author says the first six-factor draft failed screening. On roughly two years and 17,500 hourly BTC bars, candidates were ranked using rank IC in an out-of-sample walk-forward.
+- **Redundancy finding:** MACD, RSI, and ROC are reported to have correlations from about 0.80 to 0.97, so treating them as three confirmations would repeatedly count one price-derived factor.
+- **Horizon signing:** The author reports shorter-horizon BTC mean reversion and daily-horizon trend, and therefore signs each feature according to its forecast horizon instead of assuming momentum has the same direction at every horizon.
+- **Claimed incremental inputs:** Order flow and volume are said to be the only inputs that added information beyond price. The final model is described as a small orthogonal set, with volume demoted to a conviction gate rather than another directional vote.
+- **Visual scope:** The attached chart shows BTC on Hyperliquid at 12-hour resolution. The research claim refers to hourly BTC data, while the promotional claim extends to all markets and timeframes.
+
+### EdgeLab assessment
+
+- **Phenomenon — provisional/source-reported:** Feature redundancy among price oscillators is plausible and the stated correlations are directionally credible, but the exact feature variants, windows, sample, and correlation method are absent.
+- **Prediction — unmeasured:** No forward target, forecast horizon, rank-IC values, fold-level results, baseline, confidence interval, or decay curve is supplied. An out-of-sample label is not enough to establish prediction.
+- **Incremental information — provisional/source-reported:** Screening correlated price factors is good practice. However, the thread does not show neutralized or conditional IC, formal ablations, or whether order flow, volume, volatility, and compression remain incremental to one another. Semantic tape labels must not be counted again as independent confirmation of their underlying inputs.
+- **Robustness — unmeasured:** The claim that one normalization is comparable across instruments and timeframes is much broader than the disclosed hourly BTC sample. Venue, test dates, bar construction, parameter search, multiple-testing control, regime stability, and transfer to the displayed 12-hour Hyperliquid chart are unknown.
+- **Timeliness — unmeasured:** The design could be causal, but the code is needed to verify multi-timeframe bar alignment, rolling normalization, squeeze thresholds, extreme resets, and whether turn markers repaint or depend on future-confirmed pivots.
+- **Economics — unmeasured:** There are no executable entry/exit rules, fills, fees, spread, slippage, latency, impact, turnover, drawdown, or capacity results. The indicator may be useful as a display without establishing a tradable edge.
+
+### Decision and next discriminating evidence
+
+Keep exploratory. The durable lesson is the research discipline—deduplicate correlated price transforms, align feature direction with the forecast horizon, and require non-price inputs to demonstrate incremental value—not the promotional claim that the finished score transfers universally.
+
+The source still does not disclose enough method or evidence to define a finding or validated hypothesis. `IND-006` was subsequently created only as a transparent, source-inspired indicator implementation. The most useful next material remains the author's exact MMT script plus the research notebook or tables showing feature formulas, forward-return target and horizon, walk-forward train/test dates, rank IC by fold, ablations, parameter-search history, and results after executable costs.
+
+### Implementation continuation — 2026-09-14
+
+The user supplied the full visible input menu and asked for a behavioral reconstruction with the EdgeLab Aurora visual system. `indicators/mmt/aurora-momo-engine-replica.mmt` now preserves all 15 supplied labels and defaults. It implements three causal lookback horizons, volatility scaling, horizon-dependent signing, a separately normalized aggressor-flow component, a conviction-only volume gate, compression dampening, one confirmed turn marker per extreme, a live tape summary, painted candles, and a bounded Aurora HUD.
+
+The authenticated MMT v3 editor compiled the exact local source with zero errors and zero warnings, saved it as `Aurora Momo Engine`, attached it to the live BTC/USD Binance futures chart, and rendered its chart and lower-pane visuals. The live input dialog was visually checked against the supplied menu. This establishes implementation and settings parity only. The author’s formulas remain unavailable, so exact numerical parity and the claimed out-of-sample edge are not established.
+
+### Panel-only visual revision — 2026-09-14
+
+The user subsequently narrowed the presentation contract to the lower pane. The current implementation adds a dedicated `Visual` settings tab and a graded Blue / Red palette, while removing the HUD, candle recoloring, exhaustion markers, and main-chart compression shading at the source. The supplied Engine inputs and the score, tape, threshold, and compression computations remain intact. The exact revised source compiled with zero errors and zero warnings, rebuilt on the live chart, and was visually checked with Blue / Red selected. This is a visual-scope revision only and does not change the evidence status of the reconstruction or establish parity with the author's undisclosed formulas.

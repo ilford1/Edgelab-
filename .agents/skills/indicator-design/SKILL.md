@@ -26,3 +26,6 @@ Ban centered smoothing, future pivots, repainting, silent backfill, and threshol
 
 Trace the indicator to source signals with `derived_from` and from signals with `implemented_by`. An indicator implements evidence; it does not create evidence.
 
+## Visual presentation
+
+For luminous dark-chart ribbons, layered glow, gradient envelopes, fixed HUD cards, sparse halo markers, and compact centered diagnostic panes, read [references/aurora-visual-language.md](references/aurora-visual-language.md). Apply the visual language only after signal semantics are fixed; presentation must not add states, confidence, or apparent evidence. Treat every name, bound, color meaning, and pane component as a role to map from the target indicator rather than a predefined signal.

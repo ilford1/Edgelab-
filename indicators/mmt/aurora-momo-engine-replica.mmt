@@ -1,0 +1,281 @@
+script "Aurora Momo Engine Replica"
+
+// Source-inspired research reconstruction, not the author's original code.
+// The directional engine is close-confirmed. It uses three causal timeframe
+// horizons, bar aggressor volume, and prior/through-t normalization.
+// It renders only in its lower pane and never modifies the price chart.
+
+input (
+  input.tab(title: "Engine", key: "tab_engine")
+  input.group(title: "Source-matched inputs", key: "group_source_inputs")
+  momentumLength = input.int(20, title: "Momentum length", min: 2, max: 300, key: "momentum_length")
+  orderFlowSmoothing = input.int(5, title: "Order-flow smoothing", min: 1, max: 100, key: "order_flow_smoothing")
+  normalizationLookback = input.int(200, title: "Normalization lookback", min: 30, max: 1000, key: "normalization_lookback")
+  horizonStep = input.int(2, title: "Horizon step (x)", min: 2, max: 4, key: "horizon_step")
+  horizonWeightDecay = input.float(0.6, title: "Horizon weight decay", min: 0.05, max: 1.0, key: "horizon_weight_decay")
+  exhaustionThreshold = input.float(14.0, title: "Exhaustion threshold", min: 4.0, max: 19.5, key: "exhaustion_threshold")
+  lineSmoothing = input.int(3, title: "Line smoothing", min: 1, max: 50, key: "line_smoothing")
+  squeezePeriod = input.int(20, title: "Squeeze period", min: 5, max: 200, key: "squeeze_period")
+  squeezeTightness = input.float(1.0, title: "Squeeze tightness", min: 0.10, max: 4.0, key: "squeeze_tightness")
+  compressionDampen = input.float(0.5, title: "Compression dampen", min: 0.0, max: 1.0, key: "compression_dampen")
+  tapeSpeedSmoothing = input.int(3, title: "Tape speed smoothing", min: 1, max: 50, key: "tape_speed_smoothing")
+  tapeStrengthWindow = input.int(96, title: "Tape strength window", min: 20, max: 500, key: "tape_strength_window")
+  tapeLineHeight = input.float(4.0, title: "Tape line height", min: 0.5, max: 10.0, key: "tape_line_height")
+  flowWindow = input.int(5, title: "Flow window", min: 1, max: 100, key: "flow_window")
+  showPriceAxisTags = input.bool(true, title: "Show price-axis tags", key: "show_price_axis_tags")
+
+  input.group(title: "Transparent reconstruction", key: "group_reconstruction", collapsible: true)
+  horizonSigning = input.select(
+    "Adaptive around 1D",
+    title: "Horizon signing",
+    options: ["Adaptive around 1D", "Trend all horizons", "Mean-revert all horizons"],
+    key: "horizon_signing",
+    description: "Adaptive follows the source claim: effective horizons below one day are signed as mean reversion; one day and above are signed as trend.",
+  )
+  momentumShare = input.float(
+    0.72,
+    title: "Momentum share",
+    min: 0.0,
+    max: 1.0,
+    key: "momentum_share",
+    description: "The undisclosed momentum/order-flow blend is exposed instead of hidden. Order-flow share is one minus this value.",
+  )
+  minimumParticipation = input.float(
+    0.35,
+    title: "Minimum participation",
+    min: 0.0,
+    max: 1.0,
+    key: "minimum_participation",
+    description: "Low activity can damp the score but volume never supplies direction or amplifies it above full conviction.",
+  )
+
+  input.tab(title: "Visual", key: "tab_visual")
+  input.group(title: "Panel presentation", key: "group_presentation")
+  palette = input.select(
+    "Aurora Borealis",
+    title: "Palette",
+    options: ["Aurora Borealis", "Blue / Red", "Ice & Ember", "Electric Orchid", "Polar Night", "Custom"],
+    key: "palette",
+  )
+  showSqueezeShading = input.bool(true, title: "Shade compression", key: "show_squeeze_shading")
+  intensityGamma = input.float(0.72, title: "Intensity grading", min: 0.25, max: 2.0, key: "intensity_gamma")
+
+  input.group(title: "Tape line", key: "group_tape_line")
+  showTapeLine = input.bool(true, title: "Show tape line", key: "show_tape_line")
+  tapeLineColor = input.color(color.white, title: "Line color", key: "tape_line_color", when: showTapeLine)
+  tapeLineWidth = input.float(1.4, title: "Line width", min: 0.5, max: 6.0, key: "tape_line_width", sameLine: true, when: showTapeLine)
+  showTapeGlow = input.bool(true, title: "Show glow", key: "show_tape_glow", when: showTapeLine)
+  tapeGlowWidth = input.float(5.0, title: "Glow width", min: 1.0, max: 12.0, key: "tape_glow_width", when: showTapeLine && showTapeGlow)
+  tapeGlowOpacity = input.int(40, title: "Glow opacity", min: 0, max: 255, key: "tape_glow_opacity", sameLine: true, when: showTapeLine && showTapeGlow)
+
+  input.group(title: "Custom palette", key: "group_custom_palette", collapsible: true, when: palette == "Custom")
+  customBullish = input.color(color.rgb(66, 240, 222), title: "Bullish aurora", key: "custom_bullish", when: palette == "Custom")
+  customBearish = input.color(color.rgb(255, 101, 137), title: "Bearish aurora", key: "custom_bearish", sameLine: true, when: palette == "Custom")
+  customAccent = input.color(color.rgb(178, 126, 255), title: "Tape accent", key: "custom_accent", when: palette == "Custom")
+  customNeutral = input.color(color.rgb(143, 163, 191), title: "Neutral", key: "custom_neutral", sameLine: true, when: palette == "Custom")
+)
+
+setup (
+  chartSeconds = time.tfSeconds(context.timeframe)
+  horizonTwoLength = momentumLength * horizonStep
+  horizonThreeLength = momentumLength * horizonStep * horizonStep
+  horizonTwoSeconds = chartSeconds * horizonTwoLength
+  horizonThreeSeconds = chartSeconds * horizonThreeLength
+  requestedHistory = normalizationLookback + horizonThreeLength + tapeStrengthWindow + 80
+
+  firstEffectiveSeconds = chartSeconds * momentumLength
+  secondEffectiveSeconds = horizonTwoSeconds
+  thirdEffectiveSeconds = horizonThreeSeconds
+
+  firstSign = horizonSigning == "Trend all horizons" ? 1.0 : (horizonSigning == "Mean-revert all horizons" ? -1.0 : (firstEffectiveSeconds >= 86400 ? 1.0 : -1.0))
+  secondSign = horizonSigning == "Trend all horizons" ? 1.0 : (horizonSigning == "Mean-revert all horizons" ? -1.0 : (secondEffectiveSeconds >= 86400 ? 1.0 : -1.0))
+  thirdSign = horizonSigning == "Trend all horizons" ? 1.0 : (horizonSigning == "Mean-revert all horizons" ? -1.0 : (thirdEffectiveSeconds >= 86400 ? 1.0 : -1.0))
+
+  horizonWeightOne = 1.0
+  horizonWeightTwo = horizonWeightDecay
+  horizonWeightThree = horizonWeightDecay * horizonWeightDecay
+  horizonWeightTotal = horizonWeightOne + horizonWeightTwo + horizonWeightThree
+
+  bullishPeak = palette == "Aurora Borealis" ? color.rgb(66, 240, 222) : (palette == "Blue / Red" ? color.rgb(48, 148, 255) : (palette == "Ice & Ember" ? color.rgb(88, 199, 250) : (palette == "Electric Orchid" ? color.rgb(82, 227, 194) : (palette == "Polar Night" ? color.rgb(85, 214, 255) : customBullish))))
+  bullishMid = palette == "Aurora Borealis" ? color.rgb(21, 116, 118) : (palette == "Blue / Red" ? color.rgb(23, 76, 153) : (palette == "Ice & Ember" ? color.rgb(24, 92, 128) : (palette == "Electric Orchid" ? color.rgb(24, 106, 93) : (palette == "Polar Night" ? color.rgb(28, 93, 125) : customBullish))))
+  bearishPeak = palette == "Aurora Borealis" ? color.rgb(255, 101, 137) : (palette == "Blue / Red" ? color.rgb(255, 73, 92) : (palette == "Ice & Ember" ? color.rgb(255, 138, 91) : (palette == "Electric Orchid" ? color.rgb(240, 91, 215) : (palette == "Polar Night" ? color.rgb(155, 123, 255) : customBearish))))
+  bearishMid = palette == "Aurora Borealis" ? color.rgb(112, 34, 73) : (palette == "Blue / Red" ? color.rgb(139, 32, 54) : (palette == "Ice & Ember" ? color.rgb(112, 48, 38) : (palette == "Electric Orchid" ? color.rgb(112, 31, 103) : (palette == "Polar Night" ? color.rgb(72, 52, 127) : customBearish))))
+  accent = palette == "Aurora Borealis" ? color.rgb(178, 126, 255) : (palette == "Blue / Red" ? color.rgb(132, 198, 255) : (palette == "Ice & Ember" ? color.rgb(183, 166, 255) : (palette == "Electric Orchid" ? color.rgb(142, 124, 255) : (palette == "Polar Night" ? color.rgb(231, 240, 255) : customAccent))))
+  neutral = palette == "Aurora Borealis" ? color.rgb(143, 163, 191) : (palette == "Blue / Red" ? color.rgb(166, 178, 196) : (palette == "Ice & Ember" ? color.rgb(155, 168, 184) : (palette == "Electric Orchid" ? color.rgb(160, 167, 184) : (palette == "Polar Night" ? color.rgb(145, 160, 181) : customNeutral))))
+
+  scoreScale = color.scale(
+    at: [-20.0, -10.0, 0.0, 10.0, 20.0],
+    colors: [bearishPeak, bearishMid, neutral, bullishMid, bullishPeak],
+    space: colorspace.rgb,
+    easing: easing.smootherstep,
+  )
+)
+
+data (
+  chart = subscribe(data.ohlcv, history: requestedHistory)
+)
+
+pane momoPane = pane(title: "Aurora Momo", height: 0.18)
+
+plot (
+  bullishWash = plot.histogram(title: "Bullish atmosphere", showLabel: false, showValue: false, on: momoPane)
+  bearishWash = plot.histogram(title: "Bearish atmosphere", showLabel: false, showValue: false, on: momoPane)
+  paneCompression = plot.bg(title: "Compression", color: color.withAlpha(accent, 14), on: momoPane)
+  scoreBars = plot.histogram(title: "Momo score bars", showLabel: false, showValue: false, on: momoPane)
+  scoreBloom = plot.line(title: "Momo bloom", width: 8.0, showLabel: false, showValue: false, on: momoPane)
+  scoreGlow = plot.line(title: "Momo glow", width: 4.2, showLabel: false, showValue: false, on: momoPane)
+  scoreCore = plot.line(title: "Momo", width: 1.5, showLabel: showPriceAxisTags, showValue: showPriceAxisTags, on: momoPane)
+  tapeGlow = plot.line(title: "Tape glow", width: tapeGlowWidth, showLabel: false, showValue: false, on: momoPane)
+  tapeCore = plot.line(title: "Tape", width: tapeLineWidth, showLabel: showPriceAxisTags, showValue: showPriceAxisTags, on: momoPane)
+  zeroLine = plot.line(title: "Zero", color: color.withAlpha(neutral, 42), width: 0.8, showLabel: false, showValue: false, on: momoPane)
+  upperThreshold = plot.line(title: "Positive exhaustion", color: color.withAlpha(neutral, 46), width: 0.7, style: linestyle.dotted, showLabel: false, showValue: false, on: momoPane)
+  lowerThreshold = plot.line(title: "Negative exhaustion", color: color.withAlpha(neutral, 46), width: 0.7, style: linestyle.dotted, showLabel: false, showValue: false, on: momoPane)
+  upperRange = plot.line(title: "Upper visual range", color: color.withAlpha(neutral, 5), width: 0.5, showLabel: false, showValue: false, on: momoPane)
+  lowerRange = plot.line(title: "Lower visual range", color: color.withAlpha(neutral, 5), width: 0.5, showLabel: false, showValue: false, on: momoPane)
+)
+
+fn tapeLabel(ready: bool, strength: float, flow: float) -> string {
+  if !ready {
+    return "WARMING UP"
+  }
+  if strength < 0.50 {
+    return "DORMANT"
+  }
+  if math.abs(flow) < 0.08 {
+    return "BALANCED"
+  }
+  if strength >= 3.0 {
+    return flow > 0.0 ? "BUY CLIMAX" : "SELL CLIMAX"
+  }
+  if strength >= 1.5 {
+    return flow > 0.0 ? "AGGRESSIVE BUY" : "AGGRESSIVE SELL"
+  }
+  return flow > 0.0 ? "ACCUMULATING" : "DISTRIBUTING"
+}
+
+fn engineLabel(ready: bool, squeeze: bool, score: float) -> string {
+  if !ready {
+    return "WARMING UP"
+  }
+  if squeeze {
+    return "COIL / LOW CONVICTION"
+  }
+  if score >= exhaustionThreshold {
+    return "STRETCHED UP"
+  }
+  if score <= exhaustionThreshold * -1.0 {
+    return "STRETCHED DOWN"
+  }
+  if math.abs(score) < 2.0 {
+    return "BALANCED"
+  }
+  return score > 0.0 ? "DRIVE UP" : "DRIVE DOWN"
+}
+
+on chart.close {
+  let closeRaw = chart.close
+  let buyRaw = chart.buyVolume
+  let sellRaw = chart.sellVolume
+  let firstPastRaw = chart.close[momentumLength]
+  let secondPastRaw = chart.close[horizonTwoLength]
+  let thirdPastRaw = chart.close[horizonThreeLength]
+  let firstAtrRaw = chart.atr(momentumLength)
+  let secondAtrRaw = chart.atr(horizonTwoLength)
+  let thirdAtrRaw = chart.atr(horizonThreeLength)
+
+  zeroLine.plot(0.0)
+  upperThreshold.plot(exhaustionThreshold)
+  lowerThreshold.plot(exhaustionThreshold * -1.0)
+  upperRange.plot(22.5)
+  lowerRange.plot(-22.5)
+  bullishWash.plot(22.5, color: color.withAlpha(bullishPeak, 5))
+  bearishWash.plot(-22.5, color: color.withAlpha(bearishPeak, 5))
+
+  if closeRaw == null || buyRaw == null || sellRaw == null || firstPastRaw == null || secondPastRaw == null || thirdPastRaw == null || firstAtrRaw == null || secondAtrRaw == null || thirdAtrRaw == null {
+    momoPane.setTitle("Aurora Momo · WARMING UP")
+    return
+  }
+
+  let close = closeRaw ?? 0.0
+  let buyVolume = buyRaw ?? 0.0
+  let sellVolume = sellRaw ?? 0.0
+  let grossVolume = buyVolume + sellVolume
+  let deltaVolume = buyVolume - sellVolume
+  let tickFloor = math.max(0.00000001, context.tickSize)
+
+  let rootLengthOne = math.sqrt(momentumLength * 1.0) ?? 1.0
+  let rootLengthTwo = math.sqrt(horizonTwoLength * 1.0) ?? 1.0
+  let rootLengthThree = math.sqrt(horizonThreeLength * 1.0) ?? 1.0
+  let firstVolatility = math.max(tickFloor, (firstAtrRaw ?? tickFloor) * rootLengthOne)
+  let secondVolatility = math.max(tickFloor, (secondAtrRaw ?? tickFloor) * rootLengthTwo)
+  let thirdVolatility = math.max(tickFloor, (thirdAtrRaw ?? tickFloor) * rootLengthThree)
+  let firstMomentum = firstSign * (close - (firstPastRaw ?? close)) / firstVolatility
+  let secondMomentum = secondSign * (close - (secondPastRaw ?? close)) / secondVolatility
+  let thirdMomentum = thirdSign * (close - (thirdPastRaw ?? close)) / thirdVolatility
+  let rawMomentum = (horizonWeightOne * firstMomentum + horizonWeightTwo * secondMomentum + horizonWeightThree * thirdMomentum) / horizonWeightTotal
+
+  let rawFlow = grossVolume > 0.0 ? deltaVolume / grossVolume : 0.0
+  let smoothedFlowRaw = ta.ema(rawFlow, orderFlowSmoothing)
+  let momentumMeanRaw = ta.sma(rawMomentum, normalizationLookback)
+  let momentumStdRaw = ta.stdev(rawMomentum, normalizationLookback)
+  let flowMeanRaw = ta.sma(smoothedFlowRaw, normalizationLookback)
+  let flowStdRaw = ta.stdev(smoothedFlowRaw, normalizationLookback)
+
+  let tapeFastRaw = ta.ema(grossVolume, tapeSpeedSmoothing)
+  let tapeBaseRaw = ta.sma(grossVolume, tapeStrengthWindow)
+  let flowDeltaRaw = ta.sma(deltaVolume, flowWindow)
+  let flowGrossRaw = ta.sma(grossVolume, flowWindow)
+  let squeezeDeviationRaw = ta.stdev(chart.close, squeezePeriod)
+  let squeezeAtrRaw = chart.atr(squeezePeriod)
+
+  let ready = momentumMeanRaw != null && momentumStdRaw != null && flowMeanRaw != null && flowStdRaw != null && tapeFastRaw != null && tapeBaseRaw != null && flowDeltaRaw != null && flowGrossRaw != null && squeezeDeviationRaw != null && squeezeAtrRaw != null
+  if !ready {
+    momoPane.setTitle("Aurora Momo · NORMALIZATION WARMUP")
+    return
+  }
+
+  let momentumStd = math.max(0.000001, momentumStdRaw ?? 0.0)
+  let flowStd = math.max(0.000001, flowStdRaw ?? 0.0)
+  let momentumZ = (rawMomentum - (momentumMeanRaw ?? rawMomentum)) / momentumStd
+  let flowZ = ((smoothedFlowRaw ?? 0.0) - (flowMeanRaw ?? (smoothedFlowRaw ?? 0.0))) / flowStd
+  let directionalZ = momentumShare * momentumZ + (1.0 - momentumShare) * flowZ
+  let ungatedScore = math.clamp(directionalZ * 6.6666667, -20.0, 20.0)
+
+  let tapeBase = math.max(0.000001, tapeBaseRaw ?? 0.0)
+  let tapeStrength = math.max(0.0, (tapeFastRaw ?? 0.0) / tapeBase)
+  let tapeFlow = (flowGrossRaw ?? 0.0) > 0.0 ? (flowDeltaRaw ?? 0.0) / (flowGrossRaw ?? 1.0) : 0.0
+  let participationGate = math.clamp(tapeStrength, minimumParticipation, 1.0)
+  let squeezeRatio = 2.0 * (squeezeDeviationRaw ?? 0.0) / math.max(tickFloor, squeezeAtrRaw ?? tickFloor)
+  let squeeze = squeezeRatio <= squeezeTightness
+  let compressionGate = squeeze ? compressionDampen : 1.0
+  let gatedScore = ungatedScore * participationGate * compressionGate
+  let scoreRaw = ta.ema(gatedScore, lineSmoothing)
+
+  if scoreRaw == null {
+    return
+  }
+
+  let score = scoreRaw ?? 0.0
+  let scoreBaseColor = scoreScale.sample(score)
+  let magnitude = math.clamp(math.abs(score) / 20.0, 0.0, 1.0)
+  let curve = math.pow(magnitude, intensityGamma) ?? magnitude
+  let coreAlphaRaw = int(math.round(205.0 + 50.0 * curve, 0)) ?? 235
+  let barAlphaRaw = int(math.round(118.0 + 100.0 * curve, 0)) ?? 170
+  let coreAlpha = squeeze ? int(math.round(coreAlphaRaw * math.max(0.20, compressionDampen), 0)) ?? 150 : coreAlphaRaw
+  let barAlpha = squeeze ? int(math.round(barAlphaRaw * math.max(0.20, compressionDampen), 0)) ?? 100 : barAlphaRaw
+  let tapeValue = math.clamp(tapeStrength, 0.0, 3.5) * tapeLineHeight
+  let tapeCoreValue: float? = showTapeLine ? tapeValue : null
+  let tapeGlowValue: float? = showTapeLine && showTapeGlow ? tapeValue : null
+
+  scoreBars.plot(score, color: color.withAlpha(scoreBaseColor, barAlpha))
+  scoreBloom.plot(score, color: color.withAlpha(scoreBaseColor, squeeze ? 7 : 16))
+  scoreGlow.plot(score, color: color.withAlpha(scoreBaseColor, squeeze ? 30 : 72))
+  scoreCore.plot(score, color: color.withAlpha(scoreBaseColor, coreAlpha))
+  tapeGlow.plot(tapeGlowValue, color: color.withAlpha(accent, tapeGlowOpacity))
+  tapeCore.plot(tapeCoreValue, color: tapeLineColor)
+
+  if showSqueezeShading && squeeze {
+    paneCompression.plot()
+  }
+  momoPane.setTitle(str.format("Aurora Momo · {0} · Tape {1}", engineLabel(true, squeeze, score), tapeLabel(true, tapeStrength, tapeFlow)))
+}

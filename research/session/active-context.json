@@ -1,26 +1,38 @@
 {
   "schema_version": 1,
-  "topic": "Flow Shock and Comet intensity ribbon variants",
-  "objective": "Render Flow Shock and Comet Speed Density as compact historical ribbons with dark-chart directional palettes and causal percentile-driven intensity grading without changing their research-state rules.",
-  "mode": "indicator-prototype",
-  "seed_nodes": ["IND-001", "IND-004", "SIG-001", "OQ-002"],
-  "loaded_nodes": ["IND-001", "IND-004", "SIG-001", "SIG-002", "OQ-002", "CON-001"],
-  "current_hypotheses": [],
-  "current_concepts": ["SIG-001", "SIG-002", "CON-001", "IND-001", "IND-004", "OQ-002"],
+  "topic": "Impulse-gated large-trade bubbles for Delta Candle Pressure",
+  "objective": "Show historical large-taker activity on close-confirmed pressure impulses while preserving an exact individual-print mode.",
+  "mode": "indicator-implementation-audit",
+  "seed_nodes": [
+    "IND-002",
+    "SIG-002",
+    "IND-003",
+    "IND-001",
+    "HYP-001"
+  ],
+  "loaded_nodes": [
+    "IND-002",
+    "SIG-002",
+    "IND-003",
+    "IND-001",
+    "HYP-001"
+  ],
+  "current_hypotheses": [
+    "HYP-001"
+  ],
+  "current_concepts": [
+    "CON-001"
+  ],
   "current_experiments": [],
   "unresolved_questions": [
-    "Do MMT historical trade replay and live updates produce the same ribbon path for both variants?",
-    "Does the two-line Flow Shock view reveal useful opposing-side structure without obscuring the original dominant-side score?",
-    "Are the Comet drive and density traces visually separable across quiet and liquidation-heavy sessions?",
-    "Do the default opacity curve and palette preserve weak-state visibility without making ordinary observations look exceptional?",
-    "Do any descriptive states predict executable outcomes after matched controls and costs?"
+    "OQ-002"
   ],
   "debate": {
-    "thesis": "Causal percentile values can support a compact graded ribbon that improves historical state comparison without changing the underlying detector or implying new predictive information.",
-    "strongest_support": "Both indicators already maintain prior-only rolling baselines, so ribbon height and intensity can be driven by existing normalized measurements rather than hindsight scaling.",
-    "strongest_objection": "A polished, bright ribbon can create false salience, and trade-only active-second history may not reconstruct continuously or identically in MMT replay.",
-    "belief_update": "Two visual-only variants now use wide glow plus crisp core lines and Ice & Ember magnitude grading. Flow Shock exposes buy and sell scores while preserving the dominant-side score; Comet keeps drive and density separate. No signal rule, evidence grade, or strategy claim was promoted, and platform compile plus replay remain required."
+    "thesis": "A confirmed size-bucket taker-flow bubble can make historical large-participant activity inspectable during pressure impulses without changing the pressure state machine.",
+    "strongest_support": "MMT data.vd supplies historical volume delta for a selected USD trade-size group, and data.volume can locate the dominant same-side profile price when its snapshot is available.",
+    "strongest_objection": "The hybrid is aggregated net flow rather than individual trades, opposing prints can cancel, the profile anchor is not the large trades' proven execution price, and only 250 initial profile snapshots may be available.",
+    "belief_update": "IND-002 now defaults to an explicitly labeled historical taker hybrid: data.vd qualifies and signs one aggregate bubble per confirmed impulse bar, data.volume supplies a same-side POC when available, and the candle close is the declared fallback. Exact raw-print mode remains live-edge-only on Free and Pro."
   },
-  "last_query": "Turn Flow Shock and Comet Density into reference-like ribbons with an intensity-graded color palette.",
-  "updated_at": "2026-09-13"
+  "last_query": "Implement historical impulse-gated bubbles using large-size data.vd qualification and data.volume price anchoring while retaining exact-print mode.",
+  "updated_at": "2026-09-15"
 }

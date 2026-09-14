@@ -1,0 +1,252 @@
+script "Aurora Visual Language Lab"
+
+input (
+  input.tab(title: "Aurora", key: "aurora_tab")
+  input.group(title: "Ribbon", key: "ribbon_group")
+  centerLength = input.int(21, title: "Center length", min: 3, max: 200, key: "center_length")
+  atrLength = input.int(14, title: "ATR length", min: 3, max: 100, key: "atr_length")
+  innerAtr = input.float(0.75, title: "Inner aura ATR", min: 0.10, max: 5.0, key: "inner_atr")
+  outerAtr = input.float(1.65, title: "Outer aura ATR", min: 0.25, max: 10.0, key: "outer_atr")
+  bullishColor = input.color(color.rgb(66, 240, 222), title: "Bullish aurora", key: "bullish_color")
+  bearishColor = input.color(color.rgb(255, 101, 137), title: "Bearish aurora", key: "bearish_color", sameLine: true)
+  violetColor = input.color(color.rgb(178, 126, 255), title: "Transition violet", key: "violet_color")
+
+  input.group(title: "Right-edge profile", key: "profile_group")
+  showProfile = input.bool(true, title: "Show completed volume profile", key: "show_profile")
+  profileBars = input.int(24, title: "Profile bars", min: 4, max: 200, key: "profile_bars")
+  profileBins = input.int(20, title: "Profile bins", min: 6, max: 28, key: "profile_bins")
+  profileWidthPx = input.float(132.0, title: "Profile width (px)", min: 40.0, max: 260.0, key: "profile_width_px")
+  profileInsetPx = input.float(14.0, title: "Right inset (px)", min: 0.0, max: 100.0, key: "profile_inset_px")
+
+  input.group(title: "HUD", key: "hud_group")
+  showHud = input.bool(true, title: "Show compact HUD", key: "show_hud")
+)
+
+setup (
+  darkPanel = color.rgb(7, 12, 23)
+  mutedText = color.rgb(121, 137, 163)
+)
+
+data chart = subscribe(data.ohlcv, history: 500)
+data volume = subscribe(data.volume, history: 500)
+
+plot (
+  outerUpper = plot.line(title: "Outer upper", color: color.withAlpha(violetColor, 24), width: 0.8, showLabel: false, showValue: false)
+  outerLower = plot.line(title: "Outer lower", color: color.withAlpha(violetColor, 24), width: 0.8, showLabel: false, showValue: false)
+  innerUpper = plot.line(title: "Inner upper", color: color.withAlpha(violetColor, 46), width: 0.9, showLabel: false, showValue: false)
+  innerLower = plot.line(title: "Inner lower", color: color.withAlpha(violetColor, 46), width: 0.9, showLabel: false, showValue: false)
+  centerBloom = plot.line(title: "Aurora bloom", width: 9.0, showLabel: false, showValue: false)
+  centerGlow = plot.line(title: "Aurora glow", width: 4.8, showLabel: false, showValue: false)
+  centerCore = plot.line(title: "Aurora core", width: 1.7, showLabel: true, showValue: true)
+  pocBloom = plot.line(title: "Profile POC bloom", width: 7.0, showLabel: false, showValue: false)
+  pocCore = plot.line(title: "Profile POC", width: 1.2, style: linestyle.step, showLabel: false, showValue: false)
+)
+
+fill outerAura = fill.between(outerUpper, outerLower)
+fill innerAura = fill.between(innerUpper, innerLower)
+
+state (
+  profileBoxes = entities.boxPool(max: 64, anchor: anchor.right)
+  hudPanels = entities.boxPool(max: 2, anchor: anchor.topLeft)
+  hudLabels = entities.labelPool(max: 8, anchor: anchor.topLeft)
+  signalMarkers = entities.markerPool(max: 160)
+)
+
+on chart.close {
+  let closeRaw = chart.close
+  let timeRaw = chart.time
+  let centerRaw = ta.ema(chart.close, centerLength)
+  let atrRaw = chart.atr(atrLength)
+  if closeRaw == null || timeRaw == null || centerRaw == null || atrRaw == null {
+    return
+  }
+
+  let close = closeRaw ?? 0.0
+  let timestamp = timeRaw ?? time.fromUnixSeconds(0)
+  let center = centerRaw ?? close
+  let atr = atrRaw ?? 0.0
+  let bullish = close >= center
+  let accent = bullish ? bullishColor : bearishColor
+  let opposite = bullish ? violetColor : violetColor
+  let upperOuter = center + outerAtr * atr
+  let lowerOuter = center - outerAtr * atr
+  let upperInner = center + innerAtr * atr
+  let lowerInner = center - innerAtr * atr
+
+  outerUpper.plot(upperOuter, color: color.withAlpha(violetColor, 24))
+  outerLower.plot(lowerOuter, color: color.withAlpha(violetColor, 24))
+  innerUpper.plot(upperInner, color: color.withAlpha(accent, 60))
+  innerLower.plot(lowerInner, color: color.withAlpha(accent, 60))
+  centerBloom.plot(center, color: color.withAlpha(accent, 16))
+  centerGlow.plot(center, color: color.withAlpha(accent, 72))
+  centerCore.plot(center, color: color.withAlpha(accent, 245))
+
+  outerAura.fill(
+    topValue: upperOuter,
+    bottomValue: lowerOuter,
+    topColor: color.withAlpha(opposite, bullish ? 5 : 16),
+    bottomColor: color.withAlpha(accent, bullish ? 16 : 5),
+  )
+  innerAura.fill(
+    topValue: upperInner,
+    bottomValue: lowerInner,
+    topColor: color.withAlpha(bullish ? violetColor : bearishColor, bullish ? 10 : 42),
+    bottomColor: color.withAlpha(bullish ? bullishColor : violetColor, bullish ? 42 : 10),
+  )
+
+  let crossedUp = ta.crossover(chart.close, upperOuter)
+  let crossedDown = ta.crossunder(chart.close, lowerOuter)
+  if crossedUp || crossedDown {
+    let markerColor = crossedUp ? bullishColor : bearishColor
+    let markerPrice = crossedUp ? upperOuter : lowerOuter
+    signalMarkers.get(timestamp, "halo").set(
+      timestamp, markerPrice,
+      shape: shape.diamond,
+      color: color.withAlpha(markerColor, 40),
+      size: 18.0,
+      zIndex: 20,
+    )
+    signalMarkers.get(timestamp, "core").set(
+      timestamp, markerPrice,
+      shape: shape.diamond,
+      color: markerColor,
+      size: 7.0,
+      zIndex: 21,
+    )
+  }
+
+  profileBoxes.clear("profile")
+  let profile = volume.profile(bars: profileBars)
+  let point = profile.poc()
+  if point != null {
+    pocBloom.plot(point.price, color: color.withAlpha(accent, 24))
+    pocCore.plot(point.price, color: color.withAlpha(accent, 220))
+  } else {
+    let gap: float? = null
+    pocBloom.plot(gap)
+    pocCore.plot(gap)
+  }
+
+  if showProfile {
+    let buckets = profile.buckets(profileBins)
+    if buckets != null {
+      let largest = 0.0
+      for bucket in buckets {
+        largest = math.max(largest, bucket.total)
+      }
+
+      if largest > 0.0 {
+        for bucket in buckets {
+          let buyWidth = profileWidthPx * bucket.buy / largest
+          let sellWidth = profileWidthPx * bucket.sell / largest
+          profileBoxes.get("profile", bucket.index, "buy").set(
+            x1: profileInsetPx,
+            y1: bucket.to,
+            x2: profileInsetPx + buyWidth,
+            y2: bucket.from,
+            rounding: 1.5,
+            color: color.withAlpha(bullishColor, 178),
+            zIndex: 30,
+          )
+          profileBoxes.get("profile", bucket.index, "sell").set(
+            x1: profileInsetPx + buyWidth,
+            y1: bucket.to,
+            x2: profileInsetPx + buyWidth + sellWidth,
+            y2: bucket.from,
+            rounding: 1.5,
+            color: color.withAlpha(bearishColor, 158),
+            zIndex: 29,
+          )
+        }
+      }
+    }
+  }
+
+  if showHud {
+    let buy = chart.buyVolume ?? 0.0
+    let sell = chart.sellVolume ?? 0.0
+    let gross = buy + sell
+    let buyShare = gross > 0.0 ? buy / gross * 100.0 : 50.0
+    let sellShare = 100.0 - buyShare
+    let atrPct = close != 0.0 ? atr / math.abs(close) * 100.0 : 0.0
+
+    hudPanels.get("shadow").set(
+      x1: 22.0,
+      y1: 102.0,
+      x2: 344.0,
+      y2: 254.0,
+      rounding: 12.0,
+      color: color.withAlpha(accent, 12),
+      zIndex: 39,
+    )
+    hudPanels.get("card").set(
+      x1: 16.0,
+      y1: 96.0,
+      x2: 338.0,
+      y2: 248.0,
+      rounding: 10.0,
+      color: color.withAlpha(darkPanel, 236),
+      borderColor: color.withAlpha(accent, 145),
+      borderWidth: 1.0,
+      zIndex: 40,
+    )
+    hudLabels.get("title").set(
+      x: 36.0,
+      y: 119.0,
+      text: "A U R O R A   L A B",
+      color: color.withAlpha(color.white, 230),
+      size: 13.0,
+      font: font.mono,
+      textAlign: "left",
+      zIndex: 41,
+    )
+    hudLabels.get("subtitle").set(
+      x: 36.0,
+      y: 143.0,
+      text: "VISUAL LANGUAGE  /  MMT V3",
+      color: mutedText,
+      size: 9.0,
+      font: font.mono,
+      textAlign: "left",
+      zIndex: 41,
+    )
+    hudLabels.get("state").set(
+      x: 36.0,
+      y: 177.0,
+      text: bullish ? "EXPANSION  /  UP" : "EXPANSION  /  DOWN",
+      color: accent,
+      size: 11.0,
+      font: font.mono,
+      textAlign: "left",
+      zIndex: 41,
+    )
+    hudLabels.get("flow").set(
+      x: 36.0,
+      y: 205.0,
+      text: str.format("BUY {0:.0}%    SELL {1:.0}%", buyShare, sellShare),
+      color: color.withAlpha(color.white, 205),
+      size: 10.0,
+      font: font.mono,
+      textAlign: "left",
+      zIndex: 41,
+    )
+    hudLabels.get("atr").set(
+      x: 36.0,
+      y: 229.0,
+      text: str.format("ATR {0:.2}%    PROFILE {1} BARS", atrPct, profileBars),
+      color: mutedText,
+      size: 9.0,
+      font: font.mono,
+      textAlign: "left",
+      zIndex: 41,
+    )
+  } else {
+    hudPanels.clear("shadow")
+    hudPanels.clear("card")
+    hudLabels.clear("title")
+    hudLabels.clear("subtitle")
+    hudLabels.clear("state")
+    hudLabels.clear("flow")
+    hudLabels.clear("atr")
+  }
+}

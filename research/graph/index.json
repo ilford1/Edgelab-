@@ -178,11 +178,11 @@
       "id": "IND-002",
       "type": "indicator",
       "title": "Delta Candle Pressure Divergence v3 port",
-      "summary": "Corrected MMT v3 port with graded dark-chart palettes, a soft-knee pressure ribbon, prior-peak-expanded glow-line CVD, close-confirmed divergence, causal warm-up, and bounded entities.",
+      "summary": "Corrected MMT v3 port with graded pressure views, expanded CVD, close-confirmed divergence, causal OHLCV/activity adaptation, and customizable impulse-gated bubbles from historical size-bucket taker flow or exact raw prints.",
       "status": "platform-runtime-debugging-unverified",
-      "tags": ["indicator", "delta", "divergence", "pressure", "cvd", "mmt-v3"],
+      "tags": ["indicator", "delta", "divergence", "pressure", "cvd", "large-trades", "data-vd", "data-volume", "data-trades", "mmt-v3"],
       "path": "research/indicators/IND-002.md",
-      "updated": "2026-09-13"
+      "updated": "2026-09-15"
     },
     {
       "id": "IND-003",
@@ -202,7 +202,37 @@
       "status": "syntax-informed-prototype-unverified",
       "tags": ["indicator", "price-velocity", "trade-intensity", "density", "response-fade", "mmt-v3"],
       "path": "research/indicators/IND-004.md",
-      "updated": "2026-09-13"
+      "updated": "2026-09-14"
+    },
+    {
+      "id": "IND-005",
+      "type": "indicator",
+      "title": "Book replenishment and reclaim",
+      "summary": "Unvalidated MMT v3 companion for Delta Pressure that tracks consumed-side book stress, recovery, response decay, and price reclaim, with an Aurora HUD and fixed-span right-edge liquidity bands.",
+      "status": "platform-runtime-observed-unvalidated",
+      "tags": ["indicator", "order-book", "replenishment", "response-decay", "reclaim", "mmt-v3"],
+      "path": "research/indicators/IND-005.md",
+      "updated": "2026-09-14"
+    },
+    {
+      "id": "IND-006",
+      "type": "indicator",
+      "title": "Aurora Momo Engine reconstruction",
+      "summary": "Source-inspired MMT v3 reconstruction of a horizon-signed momentum and aggressor-flow composite with participation and compression gates in a panel-only Aurora or blue/red presentation.",
+      "status": "platform-runtime-observed-unvalidated",
+      "tags": ["indicator", "momentum", "order-flow", "compression", "exhaustion", "aurora", "mmt-v3"],
+      "path": "research/indicators/IND-006.md",
+      "updated": "2026-09-14"
+    },
+    {
+      "id": "IND-007",
+      "type": "indicator",
+      "title": "Aurora Flow Momentum v2",
+      "summary": "Panel-only successor with corrected participation gating, composite renormalization, soft saturation, separate activity and signed pressure, response-decay exhaustion, adaptive compression, and optional component diagnostics.",
+      "status": "syntax-informed-prototype-unverified",
+      "tags": ["indicator", "momentum", "order-flow", "activity", "compression", "response-efficiency", "aurora", "mmt-v3"],
+      "path": "research/indicators/IND-007.md",
+      "updated": "2026-09-14"
     },
     {
       "id": "STR-001",
@@ -335,6 +365,37 @@
     { "source": "CON-001", "relation": "implemented_by", "target": "IND-004", "note": "Operationalizes a descriptive response-fade state as declining speed under continued activity, not a reversal prediction." },
     { "source": "IND-004", "relation": "derived_from", "target": "CON-001" },
     { "source": "OQ-002", "relation": "related_to", "target": "IND-004", "note": "The prototype exists to make the open speed-and-density question replayable and falsifiable." },
-    { "source": "IND-004", "relation": "related_to", "target": "OQ-002" }
+    { "source": "IND-004", "relation": "related_to", "target": "OQ-002" },
+    { "source": "SIG-001", "relation": "implemented_by", "target": "IND-005", "note": "Implements causal price response per normalized same-side aggressive volume and keeps response retention visible." },
+    { "source": "IND-005", "relation": "derived_from", "target": "SIG-001" },
+    { "source": "SIG-002", "relation": "implemented_by", "target": "IND-005", "note": "Uses aggressive flow only to select the consumed book side and define an event context." },
+    { "source": "IND-005", "relation": "derived_from", "target": "SIG-002" },
+    { "source": "CON-001", "relation": "implemented_by", "target": "IND-005", "note": "Operationalizes exhaustion as stress followed by persistent book recovery and price reclaim, not as a hindsight pivot." },
+    { "source": "IND-005", "relation": "derived_from", "target": "CON-001" },
+    { "source": "IND-002", "relation": "related_to", "target": "IND-005", "note": "Delta Pressure is the intended directional companion; book recovery is the proposed incremental observable." },
+    { "source": "IND-005", "relation": "related_to", "target": "IND-002" },
+    { "source": "OQ-003", "relation": "related_to", "target": "IND-005", "note": "The prototype makes the consumed-side recovery question replayable without resolving it." },
+    { "source": "IND-005", "relation": "related_to", "target": "OQ-003" },
+    { "source": "MEC-001", "relation": "related_to", "target": "IND-005", "note": "Persistent replenishment is consistent with passive absorption but snapshot depth cannot prove participant intent." },
+    { "source": "IND-005", "relation": "related_to", "target": "MEC-001" },
+    { "source": "SIG-001", "relation": "implemented_by", "target": "IND-006", "note": "Implements volatility-scaled price response across three causal horizons without treating the composite as evidence." },
+    { "source": "IND-006", "relation": "derived_from", "target": "SIG-001" },
+    { "source": "SIG-002", "relation": "implemented_by", "target": "IND-006", "note": "Uses smoothed bar aggressor imbalance as the non-price directional component and tape summary." },
+    { "source": "IND-006", "relation": "derived_from", "target": "SIG-002" },
+    { "source": "CON-001", "relation": "implemented_by", "target": "IND-006", "note": "Keeps exhaustion inspectable through symmetric threshold guides and pane state labels without emitting chart markers." },
+    { "source": "IND-006", "relation": "derived_from", "target": "CON-001" },
+    { "source": "OQ-002", "relation": "related_to", "target": "IND-006", "note": "Makes the joint price, participation, and response question inspectable while keeping tape labels derivative." },
+    { "source": "IND-006", "relation": "related_to", "target": "OQ-002" },
+    { "source": "IND-006", "relation": "related_to", "target": "IND-004", "note": "Both expose activity and price-response components; IND-006 adds horizon signing, aggressor direction, compression, and threshold states." },
+    { "source": "IND-004", "relation": "related_to", "target": "IND-006" },
+    { "source": "SIG-001", "relation": "implemented_by", "target": "IND-007", "note": "Implements a close-confirmed response-per-signed-pressure proxy and labels its limitations." },
+    { "source": "IND-007", "relation": "derived_from", "target": "SIG-001" },
+    { "source": "SIG-002", "relation": "implemented_by", "target": "IND-007", "note": "Separates signed aggressor pressure from unsigned relative activity instead of treating them as independent votes." },
+    { "source": "IND-007", "relation": "derived_from", "target": "SIG-002" },
+    { "source": "CON-001", "relation": "implemented_by", "target": "IND-007", "note": "Requires continued aligned pressure and activity with unusually weak response before labeling response decay." },
+    { "source": "IND-007", "relation": "derived_from", "target": "CON-001" },
+    { "source": "IND-007", "relation": "supersedes", "target": "IND-006", "note": "Preserves IND-006 while replacing its participation, tape semantics, hard clipping, compression, and extreme-only exhaustion approximation." },
+    { "source": "IND-007", "relation": "related_to", "target": "OQ-002", "note": "Makes activity, signed pressure, response efficiency, and horizon components separately inspectable for the required ablations." },
+    { "source": "OQ-002", "relation": "related_to", "target": "IND-007" }
   ]
 }

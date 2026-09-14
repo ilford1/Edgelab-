@@ -1,0 +1,373 @@
+script "Flow Momo"
+
+// Research-only successor to Aurora Momo Engine Replica.
+// Close-confirmed, panel-only, and intentionally separate from the original.
+// Extremes, exhaustion, activity, and signed pressure remain distinct states.
+
+input (
+  input.tab(title: "Engine", key: "tab_engine")
+  input.group(title: "Core inputs", key: "group_core_inputs")
+  momentumLength = input.int(20, title: "Momentum length", min: 2, max: 300, key: "momentum_length")
+  orderFlowSmoothing = input.int(5, title: "Order-flow smoothing", min: 1, max: 100, key: "order_flow_smoothing")
+  normalizationLookback = input.int(200, title: "Normalization lookback", min: 30, max: 1000, key: "normalization_lookback")
+  horizonStep = input.int(2, title: "Horizon step (x)", min: 2, max: 4, key: "horizon_step")
+  horizonWeightDecay = input.float(0.6, title: "Horizon weight decay", min: 0.05, max: 1.0, key: "horizon_weight_decay")
+  exhaustionThreshold = input.float(14.0, title: "Extreme threshold", min: 4.0, max: 19.5, key: "exhaustion_threshold")
+  lineSmoothing = input.int(3, title: "Line smoothing", min: 1, max: 50, key: "line_smoothing")
+  squeezePeriod = input.int(20, title: "Compression period", min: 5, max: 200, key: "squeeze_period")
+  compressionLookback = input.int(200, title: "Compression normalization", min: 40, max: 1000, key: "compression_lookback")
+  compressionZThreshold = input.float(-0.75, title: "Compression z-threshold", min: -3.0, max: 0.0, key: "compression_z_threshold")
+  compressionDampen = input.float(0.5, title: "Compression dampen", min: 0.0, max: 1.0, key: "compression_dampen")
+  tapeSpeedSmoothing = input.int(3, title: "Activity smoothing", min: 1, max: 50, key: "tape_speed_smoothing")
+  tapeStrengthWindow = input.int(96, title: "Activity baseline", min: 20, max: 500, key: "tape_strength_window")
+  tapeLineHeight = input.float(4.0, title: "Activity / pressure height", min: 0.5, max: 10.0, key: "tape_line_height")
+  flowWindow = input.int(5, title: "Pressure window", min: 1, max: 100, key: "flow_window")
+  showPriceAxisTags = input.bool(true, title: "Show panel-axis tags", key: "show_price_axis_tags")
+
+  input.group(title: "Horizon model", key: "group_horizon_model", collapsible: true)
+  horizonSigning = input.select(
+    "Adaptive around 1D",
+    title: "Horizon signing",
+    options: ["Adaptive around 1D", "Trend all horizons", "Mean-revert all horizons", "Custom per horizon"],
+    key: "horizon_signing",
+  )
+  horizonOneMode = input.select("Mean revert", title: "1x lookback", options: ["Trend", "Mean revert"], key: "horizon_one_mode", when: horizonSigning == "Custom per horizon")
+  horizonTwoMode = input.select("Mean revert", title: "2x lookback", options: ["Trend", "Mean revert"], key: "horizon_two_mode", when: horizonSigning == "Custom per horizon")
+  horizonThreeMode = input.select("Trend", title: "4x lookback", options: ["Trend", "Mean revert"], key: "horizon_three_mode", when: horizonSigning == "Custom per horizon")
+
+  input.group(title: "Composite model", key: "group_composite_model", collapsible: true)
+  momentumShare = input.float(0.72, title: "Momentum share", min: 0.0, max: 1.0, key: "momentum_share")
+  minimumParticipation = input.float(
+    0.35,
+    title: "Minimum participation threshold",
+    min: 0.0,
+    max: 0.95,
+    key: "minimum_participation",
+    description: "Participation below this threshold suppresses the score. The gate ramps from zero here to full weight at normal activity.",
+  )
+  saturationShape = input.float(3.0, title: "Soft saturation shape", min: 0.5, max: 8.0, key: "saturation_shape")
+
+  input.group(title: "Response exhaustion", key: "group_response_exhaustion", collapsible: true)
+  responseLookback = input.int(5, title: "Response lookback", min: 1, max: 100, key: "response_lookback")
+  exhaustionFlowThreshold = input.float(0.20, title: "Minimum signed pressure", min: 0.02, max: 0.95, key: "exhaustion_flow_threshold")
+  exhaustionActivityThreshold = input.float(1.0, title: "Minimum relative activity", min: 0.25, max: 3.0, key: "exhaustion_activity_threshold")
+  exhaustionEfficiencyZ = input.float(-0.75, title: "Maximum response-efficiency z", min: -3.0, max: 0.0, key: "exhaustion_efficiency_z")
+
+  input.tab(title: "Visual", key: "tab_visual")
+  input.group(title: "Panel presentation", key: "group_presentation")
+  palette = input.select(
+    "Blue / Red",
+    title: "Palette",
+    options: ["Blue / Red", "Aurora Borealis", "Ice & Ember", "Electric Orchid", "Polar Night", "Custom"],
+    key: "palette",
+  )
+  showCompressionShading = input.bool(true, title: "Shade compression", key: "show_compression_shading")
+  intensityGamma = input.float(0.72, title: "Intensity grading", min: 0.25, max: 2.0, key: "intensity_gamma")
+
+  input.group(title: "Activity line", key: "group_activity_line")
+  showActivityLine = input.bool(true, title: "Show activity line", key: "show_activity_line")
+  activityLineColor = input.color(color.white, title: "Line color", key: "activity_line_color", when: showActivityLine)
+  activityLineWidth = input.float(1.4, title: "Line width", min: 0.5, max: 6.0, key: "activity_line_width", sameLine: true, when: showActivityLine)
+  showActivityGlow = input.bool(true, title: "Show glow", key: "show_activity_glow", when: showActivityLine)
+  activityGlowWidth = input.float(5.0, title: "Glow width", min: 1.0, max: 12.0, key: "activity_glow_width", when: showActivityLine)
+  activityGlowOpacity = input.int(40, title: "Glow opacity", min: 0, max: 255, key: "activity_glow_opacity", sameLine: true, when: showActivityLine)
+
+  input.group(title: "Signed pressure line", key: "group_pressure_line")
+  showPressureLine = input.bool(true, title: "Show signed pressure", key: "show_pressure_line")
+  pressureLineWidth = input.float(1.2, title: "Line width", min: 0.5, max: 6.0, key: "pressure_line_width", when: showPressureLine)
+  showPressureGlow = input.bool(true, title: "Show glow", key: "show_pressure_glow", sameLine: true, when: showPressureLine)
+  pressureGlowWidth = input.float(4.0, title: "Glow width", min: 1.0, max: 12.0, key: "pressure_glow_width", when: showPressureLine)
+  pressureGlowOpacity = input.int(52, title: "Glow opacity", min: 0, max: 255, key: "pressure_glow_opacity", sameLine: true, when: showPressureLine)
+
+  input.group(title: "Diagnostics", key: "group_diagnostics", collapsible: true)
+  showDiagnostics = input.bool(false, title: "Show component diagnostics", key: "show_diagnostics")
+  diagnosticOpacity = input.int(150, title: "Diagnostic opacity", min: 40, max: 255, key: "diagnostic_opacity", when: showDiagnostics)
+  diagnosticWidth = input.float(0.8, title: "Diagnostic width", min: 0.5, max: 3.0, key: "diagnostic_width", sameLine: true, when: showDiagnostics)
+
+  input.group(title: "Custom palette", key: "group_custom_palette", collapsible: true, when: palette == "Custom")
+  customBullish = input.color(color.rgb(48, 148, 255), title: "Positive", key: "custom_bullish", when: palette == "Custom")
+  customBearish = input.color(color.rgb(255, 73, 92), title: "Negative", key: "custom_bearish", sameLine: true, when: palette == "Custom")
+  customAccent = input.color(color.rgb(132, 198, 255), title: "Accent", key: "custom_accent", when: palette == "Custom")
+  customNeutral = input.color(color.rgb(166, 178, 196), title: "Neutral", key: "custom_neutral", sameLine: true, when: palette == "Custom")
+)
+
+setup (
+  chartSeconds = time.tfSeconds(context.timeframe)
+  horizonTwoLength = momentumLength * horizonStep
+  horizonThreeLength = momentumLength * horizonStep * horizonStep
+  requestedHistory = horizonThreeLength + normalizationLookback * 2 + compressionLookback + tapeStrengthWindow + responseLookback + 160
+
+  firstEffectiveSeconds = chartSeconds * momentumLength
+  secondEffectiveSeconds = chartSeconds * horizonTwoLength
+  thirdEffectiveSeconds = chartSeconds * horizonThreeLength
+
+  firstSign = horizonSigning == "Trend all horizons" ? 1.0 : (horizonSigning == "Mean-revert all horizons" ? -1.0 : (horizonSigning == "Custom per horizon" ? (horizonOneMode == "Trend" ? 1.0 : -1.0) : (firstEffectiveSeconds >= 86400 ? 1.0 : -1.0)))
+  secondSign = horizonSigning == "Trend all horizons" ? 1.0 : (horizonSigning == "Mean-revert all horizons" ? -1.0 : (horizonSigning == "Custom per horizon" ? (horizonTwoMode == "Trend" ? 1.0 : -1.0) : (secondEffectiveSeconds >= 86400 ? 1.0 : -1.0)))
+  thirdSign = horizonSigning == "Trend all horizons" ? 1.0 : (horizonSigning == "Mean-revert all horizons" ? -1.0 : (horizonSigning == "Custom per horizon" ? (horizonThreeMode == "Trend" ? 1.0 : -1.0) : (thirdEffectiveSeconds >= 86400 ? 1.0 : -1.0)))
+
+  horizonWeightOne = 1.0
+  horizonWeightTwo = horizonWeightDecay
+  horizonWeightThree = horizonWeightDecay * horizonWeightDecay
+  horizonWeightTotal = horizonWeightOne + horizonWeightTwo + horizonWeightThree
+
+  bullishPeak = palette == "Blue / Red" ? color.rgb(48, 148, 255) : (palette == "Aurora Borealis" ? color.rgb(66, 240, 222) : (palette == "Ice & Ember" ? color.rgb(88, 199, 250) : (palette == "Electric Orchid" ? color.rgb(82, 227, 194) : (palette == "Polar Night" ? color.rgb(85, 214, 255) : customBullish))))
+  bullishMid = palette == "Blue / Red" ? color.rgb(23, 76, 153) : (palette == "Aurora Borealis" ? color.rgb(21, 116, 118) : (palette == "Ice & Ember" ? color.rgb(24, 92, 128) : (palette == "Electric Orchid" ? color.rgb(24, 106, 93) : (palette == "Polar Night" ? color.rgb(28, 93, 125) : customBullish))))
+  bearishPeak = palette == "Blue / Red" ? color.rgb(255, 73, 92) : (palette == "Aurora Borealis" ? color.rgb(255, 101, 137) : (palette == "Ice & Ember" ? color.rgb(255, 138, 91) : (palette == "Electric Orchid" ? color.rgb(240, 91, 215) : (palette == "Polar Night" ? color.rgb(155, 123, 255) : customBearish))))
+  bearishMid = palette == "Blue / Red" ? color.rgb(139, 32, 54) : (palette == "Aurora Borealis" ? color.rgb(112, 34, 73) : (palette == "Ice & Ember" ? color.rgb(112, 48, 38) : (palette == "Electric Orchid" ? color.rgb(112, 31, 103) : (palette == "Polar Night" ? color.rgb(72, 52, 127) : customBearish))))
+  accent = palette == "Blue / Red" ? color.rgb(132, 198, 255) : (palette == "Aurora Borealis" ? color.rgb(178, 126, 255) : (palette == "Ice & Ember" ? color.rgb(183, 166, 255) : (palette == "Electric Orchid" ? color.rgb(142, 124, 255) : (palette == "Polar Night" ? color.rgb(231, 240, 255) : customAccent))))
+  neutral = palette == "Blue / Red" ? color.rgb(166, 178, 196) : (palette == "Aurora Borealis" ? color.rgb(143, 163, 191) : (palette == "Ice & Ember" ? color.rgb(155, 168, 184) : (palette == "Electric Orchid" ? color.rgb(160, 167, 184) : (palette == "Polar Night" ? color.rgb(145, 160, 181) : customNeutral))))
+
+  scoreScale = color.scale(
+    at: [-20.0, -10.0, 0.0, 10.0, 20.0],
+    colors: [bearishPeak, bearishMid, neutral, bullishMid, bullishPeak],
+    space: colorspace.rgb,
+    easing: easing.smootherstep,
+  )
+)
+
+data (
+  chart = subscribe(data.ohlcv, history: requestedHistory)
+)
+
+pane flowPane = pane(title: "Flow Momo", height: 0.20)
+
+plot (
+  bullishWash = plot.histogram(title: "Positive atmosphere", showLabel: false, showValue: false, on: flowPane)
+  bearishWash = plot.histogram(title: "Negative atmosphere", showLabel: false, showValue: false, on: flowPane)
+  compressionShade = plot.bg(title: "Compression", color: color.withAlpha(accent, 14), on: flowPane)
+  scoreBars = plot.histogram(title: "Composite score bars", showLabel: false, showValue: false, on: flowPane)
+  scoreBloom = plot.line(title: "Composite bloom", width: 8.0, showLabel: false, showValue: false, on: flowPane)
+  scoreGlow = plot.line(title: "Composite glow", width: 4.2, showLabel: false, showValue: false, on: flowPane)
+  scoreCore = plot.line(title: "Composite", width: 1.5, showLabel: showPriceAxisTags, showValue: showPriceAxisTags, on: flowPane)
+
+  activityGlow = plot.line(title: "Activity glow", width: activityGlowWidth, showLabel: false, showValue: false, on: flowPane)
+  activityCore = plot.line(title: "Activity", width: activityLineWidth, showLabel: showPriceAxisTags, showValue: showPriceAxisTags, on: flowPane)
+  pressureGlow = plot.line(title: "Signed pressure glow", width: pressureGlowWidth, showLabel: false, showValue: false, on: flowPane)
+  pressureCore = plot.line(title: "Signed pressure", width: pressureLineWidth, showLabel: showPriceAxisTags, showValue: showPriceAxisTags, on: flowPane)
+
+  horizonOneDiagnostic = plot.line(title: "1x lookback diagnostic", width: diagnosticWidth, showLabel: false, showValue: false, on: flowPane)
+  horizonTwoDiagnostic = plot.line(title: "2x lookback diagnostic", width: diagnosticWidth, showLabel: false, showValue: false, on: flowPane)
+  horizonThreeDiagnostic = plot.line(title: "4x lookback diagnostic", width: diagnosticWidth, showLabel: false, showValue: false, on: flowPane)
+  flowDiagnostic = plot.line(title: "Flow diagnostic", width: diagnosticWidth, showLabel: false, showValue: false, on: flowPane)
+
+  zeroLine = plot.line(title: "Zero", color: color.withAlpha(neutral, 46), width: 0.8, showLabel: false, showValue: false, on: flowPane)
+  upperThreshold = plot.line(title: "Positive extreme", color: color.withAlpha(neutral, 50), width: 0.7, style: linestyle.dotted, showLabel: false, showValue: false, on: flowPane)
+  lowerThreshold = plot.line(title: "Negative extreme", color: color.withAlpha(neutral, 50), width: 0.7, style: linestyle.dotted, showLabel: false, showValue: false, on: flowPane)
+  upperRange = plot.line(title: "Upper visual range", color: color.withAlpha(neutral, 5), width: 0.5, showLabel: false, showValue: false, on: flowPane)
+  lowerRange = plot.line(title: "Lower visual range", color: color.withAlpha(neutral, 5), width: 0.5, showLabel: false, showValue: false, on: flowPane)
+)
+
+fn softScale(value: float) -> float {
+  let denominator = math.sqrt(value * value + saturationShape * saturationShape) ?? saturationShape
+  return 20.0 * value / math.max(0.000001, denominator)
+}
+
+fn activityLabel(ready: bool, activity: float, pressure: float) -> string {
+  if !ready {
+    return "WARMING UP"
+  }
+  if activity < 0.50 {
+    return "DORMANT"
+  }
+  if math.abs(pressure) < 0.08 {
+    return "BALANCED"
+  }
+  if activity >= 3.0 {
+    return pressure > 0.0 ? "BUY CLIMAX" : "SELL CLIMAX"
+  }
+  if activity >= 1.5 {
+    return pressure > 0.0 ? "AGGRESSIVE BUY" : "AGGRESSIVE SELL"
+  }
+  return pressure > 0.0 ? "BUY PRESSURE" : "SELL PRESSURE"
+}
+
+fn engineLabel(ready: bool, squeeze: bool, exhausting: bool, score: float, pressure: float) -> string {
+  if !ready {
+    return "WARMING UP"
+  }
+  if squeeze {
+    return "COMPRESSION"
+  }
+  if exhausting {
+    return pressure > 0.0 ? "BUY RESPONSE DECAY" : "SELL RESPONSE DECAY"
+  }
+  if score >= exhaustionThreshold {
+    return "EXTREME UP"
+  }
+  if score <= exhaustionThreshold * -1.0 {
+    return "EXTREME DOWN"
+  }
+  if math.abs(score) < 2.0 {
+    return "BALANCED"
+  }
+  return score > 0.0 ? "DRIVE UP" : "DRIVE DOWN"
+}
+
+on chart.close {
+  let closeRaw = chart.close
+  let highRaw = chart.high
+  let lowRaw = chart.low
+  let buyRaw = chart.buyVolume
+  let sellRaw = chart.sellVolume
+  let responsePastRaw = chart.close[responseLookback]
+  let firstPastRaw = chart.close[momentumLength]
+  let secondPastRaw = chart.close[horizonTwoLength]
+  let thirdPastRaw = chart.close[horizonThreeLength]
+  let responseAtrRaw = chart.atr(responseLookback)
+  let firstAtrRaw = chart.atr(momentumLength)
+  let secondAtrRaw = chart.atr(horizonTwoLength)
+  let thirdAtrRaw = chart.atr(horizonThreeLength)
+  let compressionAtrRaw = chart.atr(squeezePeriod)
+
+  zeroLine.plot(0.0)
+  upperThreshold.plot(exhaustionThreshold)
+  lowerThreshold.plot(exhaustionThreshold * -1.0)
+  upperRange.plot(22.5)
+  lowerRange.plot(-22.5)
+  bullishWash.plot(22.5, color: color.withAlpha(bullishPeak, 5))
+  bearishWash.plot(-22.5, color: color.withAlpha(bearishPeak, 5))
+
+  if closeRaw == null || highRaw == null || lowRaw == null || buyRaw == null || sellRaw == null || responsePastRaw == null || firstPastRaw == null || secondPastRaw == null || thirdPastRaw == null || responseAtrRaw == null || firstAtrRaw == null || secondAtrRaw == null || thirdAtrRaw == null || compressionAtrRaw == null {
+    flowPane.setTitle("Flow Momo · BASE WARMUP")
+    return
+  }
+
+  let close = closeRaw ?? 0.0
+  let high = highRaw ?? close
+  let low = lowRaw ?? close
+  let buyVolume = buyRaw ?? 0.0
+  let sellVolume = sellRaw ?? 0.0
+  let grossVolume = buyVolume + sellVolume
+  let deltaVolume = buyVolume - sellVolume
+  let tickFloor = math.max(0.00000001, context.tickSize)
+
+  if grossVolume <= 0.0 {
+    flowPane.setTitle("Flow Momo · NO FLOW DATA")
+    return
+  }
+
+  let rootLengthOne = math.sqrt(momentumLength * 1.0) ?? 1.0
+  let rootLengthTwo = math.sqrt(horizonTwoLength * 1.0) ?? 1.0
+  let rootLengthThree = math.sqrt(horizonThreeLength * 1.0) ?? 1.0
+  let firstVolatility = math.max(tickFloor, (firstAtrRaw ?? tickFloor) * rootLengthOne)
+  let secondVolatility = math.max(tickFloor, (secondAtrRaw ?? tickFloor) * rootLengthTwo)
+  let thirdVolatility = math.max(tickFloor, (thirdAtrRaw ?? tickFloor) * rootLengthThree)
+  let firstMomentum = firstSign * (close - (firstPastRaw ?? close)) / firstVolatility
+  let secondMomentum = secondSign * (close - (secondPastRaw ?? close)) / secondVolatility
+  let thirdMomentum = thirdSign * (close - (thirdPastRaw ?? close)) / thirdVolatility
+  let rawMomentum = (horizonWeightOne * firstMomentum + horizonWeightTwo * secondMomentum + horizonWeightThree * thirdMomentum) / horizonWeightTotal
+
+  let rawFlow = deltaVolume / grossVolume
+  let smoothedFlowRaw = ta.ema(rawFlow, orderFlowSmoothing)
+  let momentumMeanRaw = ta.sma(rawMomentum, normalizationLookback)
+  let momentumStdRaw = ta.stdev(rawMomentum, normalizationLookback)
+  let flowMeanRaw = ta.sma(smoothedFlowRaw, normalizationLookback)
+  let flowStdRaw = ta.stdev(smoothedFlowRaw, normalizationLookback)
+
+  let activityFastRaw = ta.ema(grossVolume, tapeSpeedSmoothing)
+  let activityBaseRaw = ta.sma(grossVolume, tapeStrengthWindow)
+  let pressureDeltaRaw = ta.sma(deltaVolume, flowWindow)
+  let pressureGrossRaw = ta.sma(grossVolume, flowWindow)
+
+  let normalizedBarRange = (high - low) / math.max(tickFloor, compressionAtrRaw ?? tickFloor)
+  let compressionMetricRaw = ta.sma(normalizedBarRange, squeezePeriod)
+
+  if smoothedFlowRaw == null || momentumMeanRaw == null || momentumStdRaw == null || flowMeanRaw == null || flowStdRaw == null || activityFastRaw == null || activityBaseRaw == null || pressureDeltaRaw == null || pressureGrossRaw == null || compressionMetricRaw == null {
+    flowPane.setTitle("Flow Momo · COMPONENT WARMUP")
+    return
+  }
+
+  let momentumStd = math.max(0.000001, momentumStdRaw ?? 0.0)
+  let flowStd = math.max(0.000001, flowStdRaw ?? 0.0)
+  let momentumZ = (rawMomentum - (momentumMeanRaw ?? rawMomentum)) / momentumStd
+  let flowZ = ((smoothedFlowRaw ?? rawFlow) - (flowMeanRaw ?? rawFlow)) / flowStd
+  let directionalRaw = momentumShare * momentumZ + (1.0 - momentumShare) * flowZ
+
+  let compositeMeanRaw = ta.sma(directionalRaw, normalizationLookback)
+  let compositeStdRaw = ta.stdev(directionalRaw, normalizationLookback)
+  let compressionMeanRaw = ta.sma(compressionMetricRaw ?? normalizedBarRange, compressionLookback)
+  let compressionStdRaw = ta.stdev(compressionMetricRaw ?? normalizedBarRange, compressionLookback)
+
+  let activityBase = math.max(0.000001, activityBaseRaw ?? 0.0)
+  let activityStrength = math.max(0.0, (activityFastRaw ?? 0.0) / activityBase)
+  let signedPressure = (pressureGrossRaw ?? 0.0) > 0.0 ? (pressureDeltaRaw ?? 0.0) / (pressureGrossRaw ?? 1.0) : 0.0
+
+  let responseRoot = math.sqrt(responseLookback * 1.0) ?? 1.0
+  let responseVolatility = math.max(tickFloor, (responseAtrRaw ?? tickFloor) * responseRoot)
+  let pressureDirection = signedPressure > 0.0 ? 1.0 : (signedPressure < 0.0 ? -1.0 : 0.0)
+  let alignedResponse = pressureDirection * (close - (responsePastRaw ?? close)) / responseVolatility
+  let responseEfficiency = alignedResponse / math.max(0.05, math.abs(signedPressure))
+  let efficiencyMeanRaw = ta.sma(responseEfficiency, normalizationLookback)
+  let efficiencyStdRaw = ta.stdev(responseEfficiency, normalizationLookback)
+
+  if compositeMeanRaw == null || compositeStdRaw == null || compressionMeanRaw == null || compressionStdRaw == null || efficiencyMeanRaw == null || efficiencyStdRaw == null {
+    flowPane.setTitle("Flow Momo · MODEL WARMUP")
+    return
+  }
+
+  let compositeStd = math.max(0.000001, compositeStdRaw ?? 0.0)
+  let compositeZ = (directionalRaw - (compositeMeanRaw ?? directionalRaw)) / compositeStd
+  let softScore = softScale(compositeZ)
+
+  let participationDenominator = math.max(0.000001, 1.0 - minimumParticipation)
+  let participationGate = math.clamp((activityStrength - minimumParticipation) / participationDenominator, 0.0, 1.0)
+
+  let compressionStd = math.max(0.000001, compressionStdRaw ?? 0.0)
+  let compressionZ = ((compressionMetricRaw ?? normalizedBarRange) - (compressionMeanRaw ?? normalizedBarRange)) / compressionStd
+  let squeeze = compressionZ <= compressionZThreshold
+  let compressionGate = squeeze ? compressionDampen : 1.0
+  let gatedScore = softScore * participationGate * compressionGate
+  let scoreRaw = ta.ema(gatedScore, lineSmoothing)
+
+  if scoreRaw == null {
+    return
+  }
+
+  let score = scoreRaw ?? 0.0
+  let efficiencyStd = math.max(0.000001, efficiencyStdRaw ?? 0.0)
+  let efficiencyZ = (responseEfficiency - (efficiencyMeanRaw ?? responseEfficiency)) / efficiencyStd
+  let alignedExtreme = (score > 0.0 && signedPressure > 0.0) || (score < 0.0 && signedPressure < 0.0)
+  let exhausting = alignedExtreme && math.abs(score) >= exhaustionThreshold && math.abs(signedPressure) >= exhaustionFlowThreshold && activityStrength >= exhaustionActivityThreshold && efficiencyZ <= exhaustionEfficiencyZ
+
+  let scoreBaseColor = scoreScale.sample(score)
+  let magnitude = math.clamp(math.abs(score) / 20.0, 0.0, 1.0)
+  let curve = math.pow(magnitude, intensityGamma) ?? magnitude
+  let coreAlphaRaw = int(math.round(205.0 + 50.0 * curve, 0)) ?? 235
+  let barAlphaRaw = int(math.round(118.0 + 100.0 * curve, 0)) ?? 170
+  let coreAlpha = squeeze ? int(math.round(coreAlphaRaw * math.max(0.20, compressionDampen), 0)) ?? 150 : coreAlphaRaw
+  let barAlpha = squeeze ? int(math.round(barAlphaRaw * math.max(0.20, compressionDampen), 0)) ?? 100 : barAlphaRaw
+
+  let activityValue = math.clamp(activityStrength, 0.0, 3.5) * tapeLineHeight
+  let pressureValue = signedPressure * math.clamp(activityStrength, 0.0, 3.5) * tapeLineHeight
+  let pressureColor = pressureValue > 0.0 ? bullishPeak : (pressureValue < 0.0 ? bearishPeak : neutral)
+  let activityCoreValue: float? = showActivityLine ? activityValue : null
+  let activityGlowValue: float? = showActivityLine && showActivityGlow ? activityValue : null
+  let pressureCoreValue: float? = showPressureLine ? pressureValue : null
+  let pressureGlowValue: float? = showPressureLine && showPressureGlow ? pressureValue : null
+
+  let horizonOneValue: float? = showDiagnostics ? softScale(firstMomentum) : null
+  let horizonTwoValue: float? = showDiagnostics ? softScale(secondMomentum) : null
+  let horizonThreeValue: float? = showDiagnostics ? softScale(thirdMomentum) : null
+  let flowDiagnosticValue: float? = showDiagnostics ? softScale(flowZ) : null
+
+  scoreBars.plot(score, color: color.withAlpha(scoreBaseColor, barAlpha))
+  scoreBloom.plot(score, color: color.withAlpha(scoreBaseColor, squeeze ? 7 : 16))
+  scoreGlow.plot(score, color: color.withAlpha(scoreBaseColor, squeeze ? 30 : 72))
+  scoreCore.plot(score, color: color.withAlpha(scoreBaseColor, coreAlpha))
+
+  activityGlow.plot(activityGlowValue, color: color.withAlpha(activityLineColor, activityGlowOpacity))
+  activityCore.plot(activityCoreValue, color: activityLineColor)
+  pressureGlow.plot(pressureGlowValue, color: color.withAlpha(pressureColor, pressureGlowOpacity))
+  pressureCore.plot(pressureCoreValue, color: pressureColor)
+
+  horizonOneDiagnostic.plot(horizonOneValue, color: color.withAlpha(accent, diagnosticOpacity))
+  horizonTwoDiagnostic.plot(horizonTwoValue, color: color.withAlpha(color.rgb(247, 209, 84), diagnosticOpacity))
+  horizonThreeDiagnostic.plot(horizonThreeValue, color: color.withAlpha(neutral, diagnosticOpacity))
+  flowDiagnostic.plot(flowDiagnosticValue, color: color.withAlpha(pressureColor, diagnosticOpacity))
+
+  if showCompressionShading && squeeze {
+    compressionShade.plot()
+  }
+
+  flowPane.setTitle(str.format("Flow Momo · {0} · Activity {1} · Efficiency {2:.2}Z", engineLabel(true, squeeze, exhausting, score, signedPressure), activityLabel(true, activityStrength, signedPressure), efficiencyZ))
+}
